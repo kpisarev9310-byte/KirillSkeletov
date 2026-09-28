@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ORBIT CRUSH — разбивай планеты</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rubik+Mono+One&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#07070f;
+    --bone:#f2ede4;
+    --magma:#ff5c39;
+    --acid:#b8ff2e;
+    --gold:#ffd23f;
+    --violet:#7b4dff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--void)}
+  body{font-family:'Orbitron',monospace,sans-serif;color:var(--bone);user-select:none}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:pointer}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;
+       align-items:flex-start;padding:18px 26px;pointer-events:none;z-index:5;
+       opacity:0;transition:opacity .4s}
+  #hud.on{opacity:1}
+  .score-wrap{display:flex;flex-direction:column;gap:2px}
+  #score{font-size:clamp(30px,5vw,52px);font-weight:900;letter-spacing:2px;line-height:1;
+         text-shadow:3px 3px 0 rgba(255,92,57,.55)}
+  #best{font-size:12px;letter-spacing:3px;opacity:.6}
+  #combo{font-family:'Rubik Mono One',sans-serif;font-size:clamp(20px,3.4vw,34px);
+         color:var(--acid);text-align:center;opacity:0;transform:scale(.6) rotate(-4deg);
+         transition:all .12s;text-shadow:0 0 18px rgba(184,255,46,.6),3px 3px 0 #00000055;
+         margin-top:6px}
+  #combo.pop{opacity:1;transform:scale(1) rotate(-4deg)}
+  .spd{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  #phase{font-size:11px;letter-spacing:3px;color:var(--gold);opacity:.9;text-transform:uppercase}
+  #speedbar{width:120px;height:6px;background:#ffffff14;border-radius:3px;overflow:hidden}
+  #speedfill{height:100%;width:0%;border-radius:3px;
+             background:linear-gradient(90deg,var(--acid),var(--gold),var(--magma));
+             transition:width .3s}
+
+  /* ---------- overlays ---------- */
+  .overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+           justify-content:center;gap:14px;z-index:10;text-align:center;padding:24px}
+  .hidden{display:none!important}
+  #menu h1{font-family:'Rubik Mono One',sans-serif;font-size:clamp(34px,8vw,84px);
+           line-height:1.05;letter-spacing:2px}
+  #menu h1 span{color:var(--magma);text-shadow:4px 4px 0 #000,0 0 34px rgba(255,92,57,.5)}
+  .tagline{font-size:clamp(11px,1.6vw,15px);letter-spacing:4px;opacity:.75;margin-top:-2px}
+  .rules{margin-top:18px;display:flex;gap:26px;flex-wrap:wrap;justify-content:center}
+  .rule{max-width:190px;font-size:12px;line-height:1.6;letter-spacing:1px;opacity:.85;
+        border:1px solid #ffffff1c;border-radius:10px;padding:12px 14px;background:#ffffff08}
+  .rule b{display:block;color:var(--acid);margin-bottom:5px;font-size:13px;letter-spacing:2px}
+  .prompt{margin-top:26px;font-size:clamp(14px,2.2vw,20px);letter-spacing:3px;
+          animation:blink 1.1s steps(2) infinite;color:var(--gold)}
+  @keyframes blink{50%{opacity:.15}}
+  #hiscore-line{margin-top:8px;font-size:12px;letter-spacing:3px;opacity:.6}
+
+  #dead{background:radial-gradient(ellipse at center,#0a0a16dd 30%,#07070fee 100%)}
+  #dead h2{font-family:'Rubik Mono One',sans-serif;font-size:clamp(26px,6vw,58px);color:var(--magma);
+           text-shadow:4px 4px 0 #000}
+  #dead .stats{display:flex;gap:34px;margin-top:6px}
+  #dead .stat{display:flex;flex-direction:column;gap:4px}
+  #dead .stat .v{font-size:clamp(24px,4vw,40px);font-weight:900;color:var(--gold)}
+  #dead .stat .l{font-size:10px;letter-spacing:3px;opacity:.6}
+  #newbest{color:var(--acid);font-size:13px;letter-spacing:4px;height:16px;animation:blink .8s steps(2) infinite}
+  #tip{font-size:12px;letter-spacing:1px;opacity:.65;max-width:480px;line-height:1.6}
+
+  #mute{position:fixed;bottom:14px;right:16px;z-index:6;font-size:11px;letter-spacing:2px;
+        opacity:.45;pointer-events:none}
+  .touch-hint{display:none}
+  @media (pointer:coarse){.touch-hint{display:inline}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="score-wrap">
+    <div id="score">0</div>
+    <div id="best">РЕКОРД 0</div>
+  </div>
+  <div id="combo"></div>
+  <div class="spd">
+    <div id="phase">рассвет</div>
+    <div id="speedbar"><div id="speedfill"></div></div>
+  </div>
+</div>
+
+<div id="menu" class="overlay">
+  <h1>ORBIT<br><span>CRUSH</span></h1>
+  <div class="tagline">БЕСКОНЕЧНАЯ ИГРА · ТЫ — КОСМИЧЕСКИЙ МОЛОТ</div>
+  <div class="rules">
+    <div class="rule"><b>УДАР</b>Жми anywhere, когда планета у молота — разлетайся осколками</div>
+    <div class="rule"><b>ПОЛЁТ</b>Не бей — планета пролетит сквозь центр. Промах = конец</div>
+    <div class="rule"><b>ЯДРО</b>Золотые ядра дают щит и x2 очки за серию</div>
+  </div>
+  <div class="prompt"><span class="touch-hint">ТАПАЙ, ЧТОБЫ НАЧАТЬ · </span>ПРОБЕЛ / КЛИК — СТАРТ</div>
+  <div id="hiscore-line"></div>
+</div>
+
+<div id="dead" class="overlay hidden">
+  <h2>МОЛОТ СЛОМАН</h2>
+  <div class="stats">
+    <div class="stat"><div class="v" id="d-score">0</div><div class="l">СЧЁТ</div></div>
+    <div class="stat"><div class="v" id="d-crush">0</div><div class="l">РАЗБИТО</div></div>
+    <div class="stat"><div class="v" id="d-combo">0</div><div class="l">МАКС. КОМБО</div></div>
+  </div>
+  <div id="newbest"></div>
+  <div id="tip"></div>
+  <div class="prompt"><span class="touch-hint">ТАПАЙ, ЧТОБЫ ПРОБОВАТЬ СНОВА · </span>ПРОБЕЛ / КЛИК — ЗАНОВО</div>
+</div>
+
+<div id="mute">M — ЗВУК ВКЛ/ВЫКЛ</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   ORBIT CRUSH — endless "smash the planets with a rotating hammer"
+   Single file, no assets besides Google Fonts. Canvas + WebAudio.
+   ===================================================================== */
+
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, BASE_R = 0;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = W * DPR; cvs.height = H * DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  CX = W/2; CY = H*0.52;
+  BASE_R = Math.max(70, Math.min(W,H)*0.21);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ------------------------------ utils ------------------------------ */
+const TAU = Math.PI*2;
+const rand = (a,b)=>a+Math.random()*(b-a);
+const pick = arr=>arr[(Math.random()*arr.length)|0];
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp = (a,b,t)=>a+(b-a)*t;
+
+/* ------------------------------ audio ------------------------------ */
+let AC=null, muted=false, noiseBuf=null;
+function ac(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} } return AC; }
+function getNoise(a){ const b=a.createBuffer(1,a.sampleRate*0.5,a.sampleRate);
+  const d=b.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1; return b; }
+function tone(f,dur,type='square',vol=.15,slide=0,delay=0){
+  const a=ac(); if(!a||muted)return;
+  const t=a.currentTime+delay, o=a.createOscillator(), g=a.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t);
+  if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide),t+dur);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0008,t+dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+.02);
+}
+function thud(vol=.5){
+  const a=ac(); if(!a||muted)return;
+  const t=a.currentTime;
+  const o=a.createOscillator(),g=a.createGain();
+  o.type='sine';o.frequency.setValueAtTime(150,t);
+  o.frequency.exponentialRampToValueAtTime(38,t+.22);
+  g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+.3);
+  o.connect(g).connect(a.destination);o.start(t);o.stop(t+.32);
+  if(!noiseBuf)noiseBuf=getNoise(a);
+  const s=a.createBufferSource(),bg=a.createGain(),fl=a.createBiquadFilter();
+  s.buffer=noiseBuf; fl.type='bandpass'; fl.frequency.value=900; fl.Q.value=.8;
+  bg.gain.setValueAtTime(vol*.5,t);bg.gain.exponentialRampToValueAtTime(.001,t+.18);
+  s.connect(fl).connect(bg).connect(a.destination);s.start(t);s.stop(t+.2);
+}
+function whoosh(){
+  const a=ac(); if(!a||muted)return;
+  if(!noiseBuf)noiseBuf=getNoise(a);
+  const t=a.currentTime,s=a.createBufferSource(),g=a.createGain(),fl=a.createBiquadFilter();
+  s.buffer=noiseBuf;s.loop=true;fl.type='bandpass';fl.Q.value=3;
+  fl.frequency.setValueAtTime(300,t);fl.frequency.exponentialRampToValueAtTime(2400,t+.12);
+  g.gain.setValueAtTime(.06,t);g.gain.exponentialRampToValueAtTime(.001,t+.14);
+  s.connect(fl).connect(g).connect(a.destination);s.start(t);s.stop(t+.16);
+}
+function jingle(n){ // combo milestone arpeggio
+  const base=220*Math.pow(2,Math.min(n,8)/12);
+  [0,4,7,12].forEach((s,i)=>tone(base*Math.pow(2,s/12),.14,'triangle',.14,0,i*.05));
+}
+function failSound(){ tone(180,.5,'sawtooth',.18,-140); tone(90,.7,'square',.12,-60,.05); thud(.6); }
+
+/* ------------------------------ palettes --------------------------- */
+const PLANETS=[
+  {name:'Магма',   fill:'#ff5c39', stroke:'#ffd23f', dust:'#ffb37c'},
+  {name:'Лёд',     fill:'#4cc9f0', stroke:'#e0fbff', dust:'#bff3ff'},
+  {name:'Кислота', fill:'#b8ff2e', stroke:'#f4ffe0', dust:'#e2ffab'},
+  {name:'Неон',    fill:'#ff3fa4', stroke:'#ffd6ec', dust:'#ffb0d8'},
+  {name:'Пурпур',  fill:'#7b4dff', stroke:'#d9c8ff', dust:'#c3aaff'},
+  {name:'Золото',  fill:'#ffd23f', stroke:'#fff3c4', dust:'#ffe98c'},
+  {name:'Тьма',    fill:'#3d3d5c', stroke:'#8f8fc0', dust:'#b9b9e0'},
+];
+const PHASES=[ // minScore -> sky gradient + mood
+  {min:0,   top:'#0d1030', bot:'#3a2a55', star:'#ffffff', phase:'рассвет туманности'},
+  {min:150, top:'#160a2e', bot:'#55213f', star:'#ffd9ec', phase:'багровая пустота'},
+  {min:400, top:'#02131b', bot:'#0a4455', star:'#9ff5ff', phase:'лёдяная зона'},
+  {min:800, top:'#1c0b2e', bot:'#6b1f7a', star:'#e0b3ff', phase:'фиолетовый шторм'},
+  {min:1400,top:'#210606', bot:'#7a2b12', star:'#ffc39a', phase:'огненное кольцо'},
+  {min:2200,top:'#05050c', bot:'#141428', star:'#8f8fc0', phase:'тёмная материя'},
+  {min:3200,top:'#0a1f0a', bot:'#2f5d1e', star:'#d2ff9e', phase:'кислотный разлом'},
+  {min:4600,top:'#000004', bot:'#0b0b18', star:'#66668a', phase:'за краем вселенной'},
+];
+
+/* ------------------------------ state ------------------------------ */
+const G={
+  mode:'menu',            // menu | play | dead
+  score:0, best:+localStorage.getItem('orbitcrush_best')||0,
+  combo:0, maxCombo:0, crushed:0,
+  shield:false,
+  angle:0, angSpeed:2.1,  // rad/s
+  planets:[], parts:[], floats:[], stars:[], ringDust:[],
+  shake:0, flash:0, flashCol:'#fff',
+  spawnTimer:1.2,
+  time:0,
+  deathPlanet:null, deathTimer:0,
+};
+
+(function makeStars(){
+  G.stars=[];
+  for(let i=0;i<110;i++)
+    G.stars.push({x:Math.random(),y:Math.random(),r:rand(.4,1.6),tw:rand(0,TAU),sp:rand(.4,1.4)});
+})();
+
+/* ------------------------------ helpers ---------------------------- */
+function phaseFor(score){ let p=PHASES[0]; for(const q of PHASES) if(score>=q.min)p=q; return p; }
+function diff(){ return clamp(G.score/2600,0,1); }              // 0..1 difficulty
+function orbitRadius(){ return BASE_R*(1+diff()*0.28); }
+function hitAngle(){ return G.angle; }
+function hitAnglePrev(){ return G.anglePrev!==undefined?G.anglePrev:G.angle; }   // hammer head angle
+function angFromPos(x,y){ return Math.atan2(y-CY,x-CX); }
+function angDist(a,b){ let d=(a-b)%TAU; if(d>Math.PI)d-=TAU; if(d<-Math.PI)d+=TAU; return d; }
+
+/* ------------------------------ entities --------------------------- */
+const APPROACH = Math.PI*0.5;   // planets always approach the hit zone from this side
+function spawnPlanet(){
+  const d=diff();
+  const core=Math.random()<0.07+0.05*d;                 // golden core
+  const pal=pick(PLANETS);
+  // planets ride the orbit SLOWER than the hammer head and spawn AHEAD of it:
+  // the hammer always gains on them (rel speed >= 0.5 rad/s) and sweeps each
+  // planet through the hit zone — a guaranteed fair meeting, like the dino's
+  // cactus marching toward you. Speed frozen at spawn = predictable rhythm.
+  const spd=Math.max(0.4, G.angSpeed-0.5-rand(0,0.9)-d*0.6); // rad/s along orbit
+  const r=core?rand(13,16):rand(17,30)*(1-d*0.18);
+  const startAhead=Math.PI*(0.35+rand(0,0.2));          // gap ahead of the hammer head
+  G.planets.push({
+    a:(G.angle + startAhead + TAU)%TAU,
+    spd, r, core, pal, spin:rand(0,TAU), spinSpd:rand(-2,2),
+    craters:Array.from({length:core?0:5},()=>({ang:rand(0,TAU),d:rand(.15,.7),s:rand(.1,.25)})),
+    alive:true, prevD:null, wob:rand(0,TAU),
+  });
+}
+
+function burst(p, big){
+  const R=orbitRadius(), x=CX+Math.cos(p.a)*R, y=CY+Math.sin(p.a)*R;
+  const n=big?26:16;
+  for(let i=0;i<n;i++){
+    const ang=rand(0,TAU), sp=rand(60,big?420:300);
+    G.parts.push({x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp-40,
+      life:rand(.5,1.1),t:0,r:rand(2,big?9:7),col:Math.random()<.5?p.pal.fill:p.pal.dust,rot:rand(0,TAU),vr:rand(-8,8)});
+  }
+  for(let i=0;i<(big?10:6);i++){
+    const ang=rand(0,TAU), sp=rand(120,big?560:400);
+    G.parts.push({x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp,life:rand(.3,.6),t:0,
+      r:rand(1,3),col:p.pal.stroke,rot:0,vr:0,glow:true});
+  }
+}
+
+function floatText(txt,x,y,col,size){
+  G.floats.push({txt,x,y,col,size:size||22,t:0,life:1.1});
+}
+
+/* ------------------------------ input ------------------------------ */
+function press(){
+  const a=ac(); if(a&&a.state==='suspended')a.resume();
+  if(G.mode==='menu'){ startGame(); return; }
+  if(G.mode==='dead'){ if(G.deathTimer>0.7) startGame(); return; }
+  swing();
+}
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='Enter'){ e.preventDefault(); press(); }
+  if(e.key==='m'||e.key==='M'||e.key==='ь'){ muted=!muted; }
+});
+cvs.addEventListener('pointerdown',e=>{ e.preventDefault(); press(); });
+
+function swing(){
+  if(G.mode!=='play')return;
+  whoosh();
+  const R=orbitRadius();
+  let hit=null, bestD=1e9;
+  for(const p of G.planets){
+    if(!p.alive)continue;
+    const d=Math.abs(angDist(p.a,hitAngle()));
+    const tol=(p.r+16)/R;                                // angular tolerance scales w/ planet size
+    if(d<tol && d<bestD){ bestD=d; hit=p; }
+  }
+  if(hit) crush(hit,bestD<tol(hit)*0.45);
+  else missSwing();
+}
+function tol(p){ return (p.r+16)/orbitRadius(); }
+
+function crush(p, perfect){
+  p.alive=false;
+  G.crushed++; G.combo++;
+  G.maxCombo=Math.max(G.maxCombo,G.combo);
+  const mult = (G.shield?2:1);
+  let pts = (p.core?50:10) + Math.floor(G.combo/2)*2;
+  if(perfect) pts*=2;
+  pts*=mult;
+  G.score+=pts;
+  const R=orbitRadius(), x=CX+Math.cos(p.a)*R, y=CY+Math.sin(p.a)*R;
+  burst(p,p.core||perfect);
+  thud(p.core?.8:.5);
+  G.shake=Math.min(10,(p.core?9:5)+(perfect?3:0));
+  if(perfect){ G.flash=.35; G.flashCol='#ffffff'; }
+  floatText((perfect?'ИДЕАЛЬНО ':'')+'+'+pts, x, y-24, p.core?'#ffd23f':perfect?'#b8ff2e':'#f2ede4', perfect?26:20);
+  if(p.core){
+    G.shield=true; G.flash=.5; G.flashCol='#ffd23f';
+    tone(520,.25,'triangle',.2,300); tone(780,.3,'triangle',.15,200,.08);
+    floatText('ЩИТ x2', CX, CY-orbitRadius()-60,'#ffd23f',30);
+    clearTimeout(G._shieldTO); G._shieldTO=setTimeout(()=>{G.shield=false;}, 6000);
+  }
+  if(G.combo>0 && G.combo%5===0){
+    jingle(G.combo);
+    floatText('КОМБО x'+G.combo, CX, CY+orbitRadius()+70,'#b8ff2e',30);
+  }
+  updateHUD();
+}
+
+function missSwing(){
+  tone(120,.12,'square',.08,-40);
+  G.shake=Math.max(G.shake,3);
+}
+
+function die(p){
+  if(G.shield){                          // shield eats one mistake
+    G.shield=false;
+    burst(p,false); p.alive=false;
+    G.flash=.6; G.flashCol='#ffd23f'; G.shake=12;
+    tone(300,.4,'sawtooth',.2,-200);
+    floatText('ЩИТ ПОГЛОТИЛ УДАР!',CX,CY-40,'#ffd23f',26);
+    G.combo=0; updateHUD();
+    return;
+  }
+  G.mode='dead'; G.deathTimer=0; G.deathPlanet=p||null;
+  G.shake=16; G.flash=.7; G.flashCol='#ff5c39';
+  failSound();
+  if(G.score>G.best){ G.best=G.score; localStorage.setItem('orbitcrush_best',G.best); }
+  showDead();
+}
+
+/* ------------------------------ game flow -------------------------- */
+function startGame(){
+  clearTimeout(G._shieldTO);
+  Object.assign(G,{mode:'play',score:0,combo:0,maxCombo:0,crushed:0,shield:false,
+    angle:0,angSpeed:2.1,planets:[],parts:[],floats:[],ringDust:[],spawnTimer:.9,shake:0,flash:0,anglePrev:0});
+  document.getElementById('menu').classList.add('hidden');
+  document.getElementById('dead').classList.add('hidden');
+  document.getElementById('hud').classList.add('on');
+  updateHUD();
+}
+
+const hudScore=document.getElementById('score'), hudBest=document.getElementById('best'),
+      hudCombo=document.getElementById('combo'), hudPhase=document.getElementById('phase'),
+      hudSpeed=document.getElementById('speedfill');
+function updateHUD(){
+  hudScore.textContent=G.score;
+  hudBest.textContent='РЕКОРД '+G.best;
+  if(G.combo>=2){ hudCombo.textContent='x'+G.combo+' КОМБО'; hudCombo.classList.add('pop');
+    clearTimeout(updateHUD._t); updateHUD._t=setTimeout(()=>hudCombo.classList.remove('pop'),700);}
+  else if(G.combo<2) hudCombo.classList.remove('pop');
+  hudPhase.textContent=phaseFor(G.score).phase.toUpperCase();
+  hudSpeed.style.width=(diff()*100)+'%';
+}
+
+const TIPS=[
+  'Совет: держи ритм — молот вращается ровно, планеты прилетают с обеих сторон.',
+  'Совет: золотое ядро даёт щит — один промах будет прощён.',
+  'Совет: попадание точно в центр молота = «ИДЕАЛЬНО» и двойные очки.',
+  'Совет: комбо x5, x10… дают музыкальные всплески и жирные бонусы.',
+  'Совет: не спамь удары — пустой взмах сбивает чувство ритма.',
+  'Совет: чем выше счёт, тем быстрее молот. На 3000+ он почти неудержим.',
+];
+function showDead(){
+  document.getElementById('d-score').textContent=G.score;
+  document.getElementById('d-crush').textContent=G.crushed;
+  document.getElementById('d-combo').textContent='x'+G.maxCombo;
+  document.getElementById('newbest').textContent=(G.score>=G.best&&G.score>0)?'★ НОВЫЙ РЕКОРД ★':'';
+  document.getElementById('tip').textContent=pick(TIPS);
+  document.getElementById('dead').classList.remove('hidden');
+  document.getElementById('hud').classList.remove('on');
+}
+document.getElementById('hiscore-line').textContent = G.best>0?('РЕКОРД: '+G.best):'';
+
+/* ------------------------------ update ----------------------------- */
+let last=performance.now();
+function update(dt){
+  G.time+=dt;
+  // hammer rotation
+  if(G.mode==='play'){
+    const target=2.1+diff()*3.1;
+    G.angSpeed=lerp(G.angSpeed,target,dt*0.5);
+    // fairness invariant: hammer must gain on every planet by >= 0.5 rad/s
+    for(const p of G.planets) if(G.angSpeed-p.spd<0.5) G.angSpeed=p.spd+0.5;
+    G.anglePrev=G.angle;
+    G.angle=(G.angle+G.angSpeed*dt)%TAU;
+    // spawning
+    G.spawnTimer-=dt;
+    const interval=lerp(1.35,0.55,diff())*rand(0.8,1.2);
+    if(G.spawnTimer<=0){ spawnPlanet(); G.spawnTimer=interval; }
+    // planets move & miss-detection: relative angle to the hammer must shrink
+    // monotonically toward 0; when it flips sign => hit window was skipped => death
+    for(const p of G.planets){
+      if(!p.alive)continue;
+      p.a+=p.spd*dt; p.spin+=p.spinSpd*dt; p.wob+=dt*3;
+      const d=angDist(p.a,hitAngle());
+      if(p.prevD===null)p.prevD=d;
+      const t=tol(p);
+      const crossedOver = p.prevD>t && d<-t;   // hammer swept past it un-smashed => missed
+      p.prevD=d;
+      if(crossedOver){ p.alive=false; die(p); break; }
+      // safety despawn only while still approaching (never punish a passed planet)
+      if(d>tol(p) && G.angSpeed-p.spd<0.05 && Math.abs(d)>Math.PI*0.95){
+        p.loose=(p.loose||0)+dt; if(p.loose>3)p.alive=false;
+      }
+    }
+    G.planets=G.planets.filter(p=>p.alive);
+    updateHUD();
+  }
+  if(G.mode==='dead'){ G.deathTimer+=dt; }
+
+  // particles / floats / fx
+  for(const q of G.parts){ q.t+=dt; q.x+=q.vx*dt; q.y+=q.vy*dt; q.vy+=520*dt; q.rot+=q.vr*dt; }
+  G.parts=G.parts.filter(q=>q.t<q.life);
+  for(const f of G.floats){ f.t+=dt; f.y-=42*dt; }
+  G.floats=G.floats.filter(f=>f.t<f.life);
+  G.shake=Math.max(0,G.shake-dt*22);
+  G.flash=Math.max(0,G.flash-dt*1.6);
+}
+
+/* ------------------------------ draw ------------------------------- */
+function hex2rgb(h){ const n=parseInt(h.slice(1),16); return [n>>16&255,n>>8&255,n&255]; }
+function mixHex(a,b,t){ const A=hex2rgb(a),B=hex2rgb(b);
+  return `rgb(${A.map((v,i)=>Math.round(lerp(v,B[i],t))).join(',')})`; }
+
+function drawSky(ph){
+  const pulse=0.5+0.5*Math.sin(G.time*0.4);
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,ph.top);
+  g.addColorStop(1,mixHex(ph.bot,'#000000',0.15*pulse));
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // vignette
+  const v=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.25,CX,CY,Math.max(W,H)*0.75);
+  v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(0,0,0,0.55)');
+  ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+}
+
+function drawStars(ph){
+  for(const s of G.stars){
+    const a=0.25+0.75*Math.abs(Math.sin(G.time*s.sp+s.tw));
+    ctx.globalAlpha=a*0.9; ctx.fillStyle=ph.star;
+    ctx.beginPath(); ctx.arc(s.x*W,s.y*H,s.r,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawOrbit(R){
+  ctx.save();
+  ctx.strokeStyle='rgba(242,237,228,0.10)';
+  ctx.lineWidth=2; ctx.setLineDash([4,10]);
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,TAU); ctx.stroke();
+  ctx.restore();
+  // drifting dust along orbit
+  if(G.ringDust.length<40&&Math.random()<0.3){
+    G.ringDust.push({a:rand(0,TAU),sp:rand(0.15,0.5)*(Math.random()<.5?1:-1),r:rand(1,2.4),o:rand(.1,.4)});
+  }
+  ctx.fillStyle='#f2ede4';
+  for(const d of G.ringDust){
+    d.a+=d.sp*0.016;
+    ctx.globalAlpha=d.o;
+    ctx.beginPath(); ctx.arc(CX+Math.cos(d.a)*R,CY+Math.sin(d.a)*R,d.r,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawHitZone(R){
+  const ha=hitAngle();
+  const x=CX+Math.cos(ha)*R, y=CY+Math.sin(ha)*R;
+  const pulse=0.5+0.5*Math.sin(G.time*6);
+  ctx.save();
+  ctx.strokeStyle=`rgba(255,210,63,${0.25+0.35*pulse})`;
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(x,y,20+4*pulse,0,TAU); ctx.stroke();
+  ctx.restore();
+}
+
+function drawPlanet(p,R){
+  const x=CX+Math.cos(p.a)*R, y=CY+Math.sin(p.a)*R + Math.sin(p.wob)*2;
+  ctx.save(); ctx.translate(x,y); ctx.rotate(p.spin);
+  if(p.core){
+    const pulse=0.5+0.5*Math.sin(G.time*5+p.wob);
+    ctx.shadowColor='#ffd23f'; ctx.shadowBlur=18+10*pulse;
+    ctx.fillStyle='#ffd23f';
+    ctx.beginPath();
+    for(let i=0;i<10;i++){ const a=i*Math.PI/5, rr=i%2?p.r*0.45:p.r*(1+0.12*pulse);
+      ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur=0; ctx.fillStyle='#fff8d6';
+    ctx.beginPath(); ctx.arc(0,0,p.r*0.3,0,TAU); ctx.fill();
+  }else{
+    ctx.fillStyle=p.pal.fill;
+    ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill();
+    ctx.strokeStyle=p.pal.stroke; ctx.lineWidth=2.5; ctx.stroke();
+    ctx.fillStyle='rgba(0,0,0,0.22)';
+    for(const c of p.craters){ ctx.beginPath();
+      ctx.arc(Math.cos(c.ang)*p.r*c.d,Math.sin(c.ang)*p.r*c.d,p.r*c.s,0,TAU); ctx.fill(); }
+    // shading crescent
+    ctx.fillStyle='rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.arc(p.r*0.35,p.r*0.25,p.r*0.95,0,TAU);
+    ctx.save(); ctx.clip(); ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawHammer(R){
+  const ha=hitAngle();
+  const hx=CX+Math.cos(ha)*R, hy=CY+Math.sin(ha)*R;
+  ctx.save();
+  // arm
+  ctx.strokeStyle='rgba(242,237,228,0.85)'; ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(CX,CY); ctx.lineTo(hx,hy); ctx.stroke();
+  // motion trail arc
+  ctx.strokeStyle='rgba(184,255,46,0.18)'; ctx.lineWidth=8;
+  ctx.beginPath(); ctx.arc(CX,CY,R,ha-G.angSpeed*0.16*(G.angSpeed>=0?1:-1),ha); ctx.stroke();
+  // pivot
+  ctx.fillStyle='#f2ede4'; ctx.beginPath(); ctx.arc(CX,CY,9,0,TAU); ctx.fill();
+  ctx.fillStyle=G.shield?'#ffd23f':'#ff5c39';
+  ctx.beginPath(); ctx.arc(CX,CY,4.5,0,TAU); ctx.fill();
+  // head (rotated square block)
+  ctx.translate(hx,hy); ctx.rotate(ha+Math.PI/4+G.time*2);
+  if(G.shield){ ctx.shadowColor='#ffd23f'; ctx.shadowBlur=22; }
+  ctx.fillStyle=G.shield?'#ffd23f':'#f2ede4';
+  ctx.strokeStyle='#07070f'; ctx.lineWidth=3;
+  const s=15;
+  ctx.beginPath(); ctx.rect(-s/1.4,-s/1.4,s*1.42,s*1.42); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  // shield bubble
+  if(G.shield){
+    ctx.save();
+    const pulse=0.5+0.5*Math.sin(G.time*7);
+    ctx.strokeStyle=`rgba(255,210,63,${0.35+0.3*pulse})`; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(CX,CY,R+34,0,TAU); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawParts(){
+  for(const q of G.parts){
+    const k=1-q.t/q.life;
+    ctx.save(); ctx.globalAlpha=k;
+    if(q.glow){ ctx.shadowColor=q.col; ctx.shadowBlur=8; ctx.fillStyle=q.col;
+      ctx.beginPath(); ctx.arc(q.x,q.y,q.r*k,0,TAU); ctx.fill(); }
+    else{ ctx.translate(q.x,q.y); ctx.rotate(q.rot); ctx.fillStyle=q.col;
+      ctx.fillRect(-q.r/2,-q.r/2,q.r*q.r/2+q.r*k,q.r*k); }
+    ctx.restore();
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawFloats(){
+  for(const f of G.floats){
+    const k=1-f.t/f.life;
+    ctx.save(); ctx.globalAlpha=Math.min(1,k*2);
+    ctx.font=`900 ${f.size}px Orbitron, monospace`;
+    ctx.textAlign='center';
+    ctx.fillStyle='#00000066'; ctx.fillText(f.txt,f.x+2,f.y+2);
+    ctx.fillStyle=f.col; ctx.fillText(f.txt,f.x,f.y);
+    ctx.restore();
+  }
+}
+
+function drawMenuScene(){
+  // idle demo hammer
+  const R=BASE_R;
+  drawOrbit(R);
+  ctx.save();
+  const ha=G.time*1.2;
+  drawHitZoneStatic(ha,R);
+  ctx.strokeStyle='rgba(242,237,228,0.6)'; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(CX,CY); ctx.lineTo(CX+Math.cos(ha)*R,CY+Math.sin(ha)*R); ctx.stroke();
+  ctx.translate(CX+Math.cos(ha)*R,CY+Math.sin(ha)*R); ctx.rotate(ha+Math.PI/4+G.time*2);
+  ctx.fillStyle='#f2ede4'; ctx.strokeStyle='#07070f'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.rect(-10,-10,21,21); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  // decorative planets
+  for(let i=0;i<3;i++){
+    const a=-ha*0.4+i*TAU/3, pal=PLANETS[(i*2+1)%PLANETS.length];
+    const fake={a,spin:a*2,wob:i,core:false,r:22,pal,craters:[{ang:1,d:.4,s:.2},{ang:3,d:.5,s:.15}]};
+    drawPlanet(fake,R);
+  }
+}
+function drawHitZoneStatic(ha,R){
+  const x=CX+Math.cos(ha)*R,y=CY+Math.sin(ha)*R;
+  ctx.strokeStyle='rgba(255,210,63,0.4)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(x,y,20,0,TAU); ctx.stroke();
+}
+
+function render(){
+  const ph=phaseFor(G.mode==='menu'?0:G.score);
+  ctx.save();
+  if(G.shake>0){ ctx.translate(rand(-G.shake,G.shake),rand(-G.shake,G.shake)); }
+  drawSky(ph); drawStars(ph);
+
+  if(G.mode==='menu'){
+    drawMenuScene();
+  }else{
+    const R=orbitRadius();
+    drawOrbit(R);
+    drawHitZone(R);
+    for(const p of G.planets) drawPlanet(p,R);
+    drawHammer(R);
+    drawParts();
+    drawFloats();
+    if(G.mode==='dead'&&G.deathPlanet){
+      // cracked skull-planet at center fading in
+      const k=Math.min(1,G.deathTimer*2);
+      ctx.save(); ctx.globalAlpha=k*0.9; ctx.translate(CX,CY);
+      const p=G.deathPlanet;
+      ctx.fillStyle=p.pal.fill; ctx.beginPath(); ctx.arc(0,0,p.r*2.2,0,TAU); ctx.fill();
+      ctx.strokeStyle='#07070f'; ctx.lineWidth=3;
+      for(let i=0;i<5;i++){ const a=i*1.3+p.wob;
+        ctx.beginPath(); ctx.moveTo(0,0);
+        ctx.lineTo(Math.cos(a)*p.r*2.2,Math.sin(a)*p.r*2.2); ctx.stroke(); }
+      ctx.fillStyle='#07070f';
+      ctx.beginPath(); ctx.arc(-p.r*0.8,-p.r*0.5,p.r*0.35,0,TAU); ctx.arc(p.r*0.8,-p.r*0.5,p.r*0.35,0,TAU); ctx.fill();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+  if(G.flash>0){ ctx.fillStyle=G.flashCol; ctx.globalAlpha=G.flash*0.5;
+    ctx.fillRect(0,0,W,H); ctx.globalAlpha=1; }
+}
+
+/* ------------------------------ loop ------------------------------- */
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now;
+  update(dt); render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -288,6 +288,33 @@ window.addEventListener('keydown',e=>{
   if(e.key==='m'||e.key==='M'||e.key==='ь'){ muted=!muted; }
 });
 cvs.addEventListener('pointerdown',e=>{ e.preventDefault(); press(); });
+window.addEventListener('keydown',e=>{
+  if(e.key==='t'||e.key==='T'||e.key==='е'||e.key==='Е'){ window.startAuto?startAuto():0; }
+});
+
+/* --------------------- autopilot / test harness --------------------- */
+// Клавиша T (или вызов startAuto() из консоли) включает робота-игрока:
+// он бьёт молотом ровно тогда, когда планета входит в зону удара.
+// Нужно для автотестов: можно прогнать часы игры без человека.
+let AUTO=false, autoTimer=null;
+function autoTick(){
+  if(!AUTO)return;
+  if(G.mode==='menu'||G.mode==='dead'){ startGame(); }
+  const R=orbitRadius(), tol=(14+16)/R;
+  for(const p of G.planets){
+    if(!p.alive)continue;
+    // упреждение: молот движется быстрее планеты, ждём сближения
+    if(Math.abs(angDist(p.a,hitAngle()))<=tol*0.5){ swing(); break; }
+  }
+}
+function startAuto(ms){
+  AUTO=true;
+  if(autoTimer)clearInterval(autoTimer);
+  autoTimer=setInterval(autoTick,8);
+  if(ms)setTimeout(()=>{AUTO=false;clearInterval(autoTimer);},ms);
+  console.log('[auto] autopilot ON');
+}
+window.startAuto=startAuto;
 
 function swing(){
   if(G.mode!=='play')return;

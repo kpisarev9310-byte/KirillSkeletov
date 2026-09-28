@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>ORBIT CRUSH — разбивай планеты</title>
+<title>ORBIT CRUSH — добивай комбо, берегись бомб</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rubik+Mono+One&display=swap" rel="stylesheet">
 <style>
@@ -58,6 +58,30 @@
   @keyframes blink{50%{opacity:.15}}
   #hiscore-line{margin-top:8px;font-size:12px;letter-spacing:3px;opacity:.6}
 
+  /* ---------- death cause stamp ---------- */
+  .stamp{font-family:'Rubik Mono One',sans-serif;font-size:clamp(14px,2.6vw,22px);
+         letter-spacing:2px;margin-bottom:-4px;padding:8px 18px;border:3px solid currentColor;
+         transform:rotate(-3deg)}
+  .stamp.miss {color:#f2ede4;border-color:#f2ede490;text-shadow:2px 2px 0 #00000088}
+  .stamp.boom {color:var(--magma);border-color:var(--magma);text-shadow:0 0 16px rgba(255,92,57,.7)}
+  .stamp.greed{color:var(--gold);border-color:var(--gold);text-shadow:0 0 16px rgba(255,210,63,.6)}
+
+  /* ---------- boss HP bar ---------- */
+  #bossbar{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:6;display:none;
+            flex-direction:column;align-items:center;gap:5px;pointer-events:none;width:min(440px,80vw)}
+  #bossbar.on{display:flex}
+  #bossname{font-size:11px;letter-spacing:4px;color:var(--violet);text-shadow:0 0 12px rgba(123,77,255,.8)}
+  #bosshpwrap{width:100%;height:12px;background:#ffffff12;border:1px solid #ffffff30;border-radius:6px;overflow:hidden}
+  #bosshp{height:100%;width:100%;background:linear-gradient(90deg,#ff3fa4,#7b4dff);transition:width .15s}
+  #bossstate{font-size:10px;letter-spacing:3px;color:var(--acid);opacity:.9;height:12px}
+
+  /* ---------- event banner (блиц-события) ---------- */
+  #event{position:fixed;top:20%;left:50%;transform:translate(-50%,-50%) scale(.7);z-index:7;
+         font-family:'Rubik Mono One',sans-serif;font-size:clamp(18px,3.4vw,32px);letter-spacing:2px;
+         color:var(--gold);text-shadow:0 0 24px rgba(255,210,63,.7),4px 4px 0 #000;
+         opacity:0;transition:all .25s;pointer-events:none;text-align:center;white-space:nowrap}
+  #event.show{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(-2deg)}
+
   #dead{background:radial-gradient(ellipse at center,#0a0a16dd 30%,#07070fee 100%)}
   #dead h2{font-family:'Rubik Mono One',sans-serif;font-size:clamp(26px,6vw,58px);color:var(--magma);
            text-shadow:4px 4px 0 #000}
@@ -67,9 +91,17 @@
   #dead .stat .l{font-size:10px;letter-spacing:3px;opacity:.6}
   #newbest{color:var(--acid);font-size:13px;letter-spacing:4px;height:16px;animation:blink .8s steps(2) infinite}
   #tip{font-size:12px;letter-spacing:1px;opacity:.65;max-width:480px;line-height:1.6}
+  #dead .stat .v.bosses{color:var(--violet)}
 
   #mute{position:fixed;bottom:14px;right:16px;z-index:6;font-size:11px;letter-spacing:2px;
         opacity:.45;pointer-events:none}
+  /* floating lives */
+  #lives{position:fixed;left:26px;top:96px;display:flex;gap:8px;z-index:5;pointer-events:none;
+         opacity:0;transition:opacity .4s}
+  #hud.on~#lives,#lives.on{opacity:1}
+  .life{width:17px;height:17px;background:var(--magma);transform:rotate(45deg);
+        box-shadow:2px 2px 0 #00000055;transition:all .3s}
+  .life.lost{background:transparent;border:2px dashed #ffffff30;box-shadow:none}
   .touch-hint{display:none}
   @media (pointer:coarse){.touch-hint{display:inline}}
 </style>
@@ -88,25 +120,40 @@
     <div id="speedbar"><div id="speedfill"></div></div>
   </div>
 </div>
+<div id="lives"></div>
+<div id="bossbar">
+  <div id="bossname">ТИТАН</div>
+  <div id="bosshpwrap"><div id="bosshp"></div></div>
+  <div id="bossstate"></div>
+</div>
+<div id="event"></div>
 
 <div id="menu" class="overlay">
   <h1>ORBIT<br><span>CRUSH</span></h1>
   <div class="tagline">БЕСКОНЕЧНАЯ ИГРА · ТЫ — КОСМИЧЕСКИЙ МОЛОТ</div>
   <div class="rules">
-    <div class="rule"><b>УДАР</b>Жми anywhere, когда планета у молота — разлетайся осколками</div>
-    <div class="rule"><b>ПОЛЁТ</b>Не бей — планета пролетит сквозь центр. Промах = конец</div>
-    <div class="rule"><b>ЯДРО</b>Золотые ядра дают щит и x2 очки за серию</div>
+    <div class="rule"><b>УДАР</b>Бей, когда планета у молота. Точный удар = «ИДЕАЛЬНО» и x2 очков</div>
+    <div class="rule"><b>ЖИЗНИ</b>Пропущенная планета отнимает жизнь. Жизней три — потом конец</div>
+    <div class="rule"><b>БОМБЫ 💣</b>Чёрные бомбы НЕ бей! Взрыв отнимает жизнь. Убегают от молота</div>
+    <div class="rule"><b>Роя 🐝</b>Пчелиный рой: сбитая матка роняет дрона-осколки прямо на молот</div>
+    <div class="rule"><b>Тиран 🌀</b>Меняет направление вращения орбиты. Следи за стрелками!</div>
+    <div class="rule"><b>Кристалл ❄ · Призрак 👻</b>Два удара / виден только в зоне удара</div>
+    <div class="rule"><b>ТИТАНЫ ☠</b>Каждые ~600 очков — босс. Крути его по орбите и добивай у красной зоны смерти</div>
+    <div class="rule"><b>БЛИЦ 🎲</b>Случайные события: обратная гравитация, жатва, безумие скорости...</div>
   </div>
   <div class="prompt"><span class="touch-hint">ТАПАЙ, ЧТОБЫ НАЧАТЬ · </span>ПРОБЕЛ / КЛИК — СТАРТ</div>
   <div id="hiscore-line"></div>
 </div>
 
 <div id="dead" class="overlay hidden">
-  <h2>МОЛОТ СЛОМАН</h2>
+  <div id="cause" class="stamp miss">МОЛОТ СЛОМАН</div>
+  <h2>GAME OVER</h2>
   <div class="stats">
     <div class="stat"><div class="v" id="d-score">0</div><div class="l">СЧЁТ</div></div>
     <div class="stat"><div class="v" id="d-crush">0</div><div class="l">РАЗБИТО</div></div>
     <div class="stat"><div class="v" id="d-combo">0</div><div class="l">МАКС. КОМБО</div></div>
+    <div class="stat"><div class="v bosses" id="d-bosses">0</div><div class="l">ТИТАНОВ</div></div>
+    <div class="stat"><div class="v" id="d-phase">—</div><div class="l">ДОШЁЛ ДО</div></div>
   </div>
   <div id="newbest"></div>
   <div id="tip"></div>
@@ -212,13 +259,18 @@ const G={
   mode:'menu',            // menu | play | dead
   score:0, best:+localStorage.getItem('orbitcrush_best')||0,
   combo:0, maxCombo:0, crushed:0,
+  lives:3,                // промахи по планетам стоят жизней — теперь МОЖНО проиграть
   shield:false,
-  angle:0, angSpeed:2.1,  // rad/s
-  planets:[], parts:[], floats:[], stars:[], ringDust:[],
+  angle:0, angSpeed:2.1,  // rad/s (может стать отрицательным — реверс!)
+  dirSign:1,              // текущее «естественное» направление молота
+  planets:[], parts:[], floats:[], stars:[], ringDust:[], drones:[],
   shake:0, flash:0, flashCol:'#fff',
   spawnTimer:1.2,
   time:0,
-  deathPlanet:null, deathTimer:0,
+  deathPlanet:null, deathTimer:0, deathCause:'miss',
+  lastType:'', lastAt:-99,   // анти-спам одинаковых типов
+  boss:null, bossesKilled:0, nextBoss:600,
+  event:null, evT:0, nextEvent:7,   // блиц-события
 };
 
 (function makeStars(){
@@ -232,29 +284,136 @@ function phaseFor(score){ let p=PHASES[0]; for(const q of PHASES) if(score>=q.mi
 function diff(){ return clamp(G.score/2600,0,1); }              // 0..1 difficulty
 function orbitRadius(){ return BASE_R*(1+diff()*0.28); }
 function hitAngle(){ return G.angle; }
-function hitAnglePrev(){ return G.anglePrev!==undefined?G.anglePrev:G.angle; }   // hammer head angle
 function angFromPos(x,y){ return Math.atan2(y-CY,x-CX); }
 function angDist(a,b){ let d=(a-b)%TAU; if(d>Math.PI)d-=TAU; if(d<-Math.PI)d+=TAU; return d; }
+function relSpd(p){ return Math.abs(G.angSpeed)+Math.abs(p.spd); } // angular closing speed (rad/s)
 
 /* ------------------------------ entities --------------------------- */
-const APPROACH = Math.PI*0.5;   // planets always approach the hit zone from this side
-function spawnPlanet(){
+// Типы целей: обычная / бомба(НЕ бей!) / кристалл(2 удара) / призрак(невидимка) / ядро
+// / рой(матка + дроны-осколки) / тиран(реверс вращения)
+const TYPES=[
+  {id:'normal'},
+  {id:'bomb',    minScore:250},
+  {id:'ice',     minScore:600},
+  {id:'ghost',   minScore:1000},
+  {id:'core',    minScore:0},
+  {id:'swarm',   minScore:900},
+  {id:'tyrant',  minScore:1300},
+];
+function chooseType(){
+  const s=G.score, d=diff();
+  const w=[];
+  w.push(['normal', 10]);
+  if(s>=TYPES[1].minScore) w.push(['bomb',  6+7*d]);
+  if(s>=TYPES[2].minScore) w.push(['ice',   5+5*d]);
+  if(s>=TYPES[3].minScore) w.push(['ghost', 4+5*d]);
+  w.push(['core', 5+2*d]);
+  if(s>=900)  w.push(['swarm', 4+4*d]);
+  if(s>=1300) w.push(['tyrant', 3+3*d]);
+  if(w.some(x=>x[0]===G.lastType) && s>400)                 // не повторять одно и то же подряд
+    for(const x of w) if(x[0]===G.lastType) x[1]*=0.3;
+  const tot=w.reduce((a,x)=>a+x[1],0);
+  let r=Math.random()*tot;
+  for(const x of w){ if((r-=x[1])<=0) return x[0]; }
+  return 'normal';
+}
+
+function spawnPlanet(forceType){
   const d=diff();
-  const core=Math.random()<0.07+0.05*d;                 // golden core
+  const type=forceType||chooseType();
+  G.lastType=type; G.lastAt=G.time;
   const pal=pick(PLANETS);
-  // planets ride the orbit SLOWER than the hammer head and spawn AHEAD of it:
-  // the hammer always gains on them (rel speed >= 0.5 rad/s) and sweeps each
-  // planet through the hit zone — a guaranteed fair meeting, like the dino's
-  // cactus marching toward you. Speed frozen at spawn = predictable rhythm.
-  const spd=Math.max(0.4, G.angSpeed-0.5-rand(0,0.9)-d*0.6); // rad/s along orbit
-  const r=core?rand(13,16):rand(17,30)*(1-d*0.18);
-  const startAhead=Math.PI*(0.35+rand(0,0.2));          // gap ahead of the hammer head
+  // Обычные цели едут ПО орбите медленнее молота — молот сам их настигает
+  // (гарантированная честная встреча). Бомбы и кристаллы идут НАВСТРЕЧУ —
+  // скорость закрытия выше, окно удара короче: бомбу надо УСПЕТЬ НЕ бить.
+  const toward = (type==='bomb'||type==='ice') && Math.random()<0.45+0.35*d;
+  let spd;
+  if(toward) spd=-rand(0.6,1.1)-d*0.7;                      // встречное движение
+  else       spd=Math.max(0.4, G.angSpeed-0.5-rand(0,0.9)-d*0.6);
+  if(type==='bomb' && spd>=0) spd=-0.8-d*0.5;               // бомба всегда летит НА молот — провокация
+  const r = type==='core'   ? rand(13,16)
+          : type==='ice'    ? rand(22,28)
+          : type==='bomb'   ? rand(17,22)
+          : type==='ghost'  ? rand(16,21)
+          : type==='swarm'  ? rand(20,25)
+          : type==='tyrant' ? rand(24,29)
+          : rand(17,30)*(1-d*0.18);
+  const startAhead=Math.PI*(0.35+rand(0,0.2));
   G.planets.push({
     a:(G.angle + startAhead + TAU)%TAU,
-    spd, r, core, pal, spin:rand(0,TAU), spinSpd:rand(-2,2),
-    craters:Array.from({length:core?0:5},()=>({ang:rand(0,TAU),d:rand(.15,.7),s:rand(.1,.25)})),
+    spd, r, core:type==='core', type, pal, spin:rand(0,TAU), spinSpd:rand(-2,2),
+    hp: type==='ice'?2:1, cracked:false,
+    craters:Array.from({length:(type==='core'||type==='bomb'||type==='swarm'||type==='tyrant')?0:5},()=>({ang:rand(0,TAU),d:rand(.15,.7),s:rand(.1,.25)})),
     alive:true, prevD:null, wob:rand(0,TAU),
   });
+}
+
+/* ---------- ТИТАН (босс): крутится по орбите, уязвим только в КРАСНОЙ ЗОНЕ ----------
+   Полоса HP сверху. В зелёной фазе неуязвим — бьёшь и получаешь отдачу (минус жизнь!).
+   После сигнала «УЯЗВИМ!» ловишь его в красном секторе — 3 точных удара. */
+const BOSSES=[
+  {name:'ГЛАЗ ПУСТОТЫ',  col:'#ff3fa4', hits:3, spin:1.7, vulnDur:3.2, calm:3.4},
+  {name:'ЖАТВОКОРЛЬ',    col:'#b8ff2e', hits:3, spin:2.4, vulnDur:2.6, calm:3.0},
+  {name:'МОЛОТОБОР',     col:'#ffd23f', hits:4, spin:-2.0,vulnDur:2.8, calm:2.6},
+  {name:'ТИТАН НЕБА',    col:'#4cc9f0', hits:4, spin:2.8, vulnDur:2.4, calm:2.4},
+  {name:'ПОЖИРАТЕЛЬ ORBIT',col:'#7b4dff',hits:5, spin:-3.2,vulnDur:2.2, calm:2.2},
+];
+function spawnBoss(){
+  clearEvent(true);
+  const idx=Math.min(G.bossesKilled,BOSSES.length-1);
+  const def=BOSSES[idx];
+  const tier=1+Math.floor(G.bossesKilled/BOSSES.length);
+  G.boss={
+    def, tier, name:def.name+(tier>1?' · '+['I','II','III','IV','V','VI'][tier-1]:''),
+    a:rand(0,TAU), dir:def.spin>0?1:-1,
+    spin:def.spin*(1+ (tier-1)*0.15),
+    hpMax:def.hits+tier-1, hp:def.hits+tier-1,
+    state:'calm', t:def.calm,                     // t — таймер смены фазы
+    flashT:0, hitCd:0,
+  };
+  document.getElementById('bossbar').classList.add('on');
+  document.getElementById('bossname').textContent='☠ '+G.boss.name.toUpperCase()+' ☠';
+  setBossState('НЕУЯЗВИМ — ЖДИ КРАСНУЮ ФАЗУ');
+  updateBossBar();
+  banner('☠ '+G.boss.name.toUpperCase()+' ПРИБЛИЖАЕТСЯ','#ff3fa4');
+  tone(70,1.2,'sawtooth',.25,-30); tone(105,1,'square',.15,-40,.1);
+  G.shake=10;
+}
+function updateBossBar(){
+  const b=G.boss, el=document.getElementById('bosshp');
+  if(!b){document.getElementById('bossbar').classList.remove('on');return;}
+  el.style.width=(100*b.hp/b.hpMax)+'%';
+}
+function setBossState(txt){ document.getElementById('bossstate').textContent=txt; }
+function bossHit(b){ // удар молота по боссу
+  const R=orbitRadius(), hx=CX+Math.cos(G.angle)*R, hy=CY+Math.sin(G.angle)*R;
+  if(b.state==='vuln'){
+    if(b.hitCd>0)return;
+    b.hitCd=.25; b.hp--; b.flashT=.2;
+    burst({pal:{fill:b.def.col,dust:'#fff',stroke:'#fff'},a:b.a,r:b.r||26},true);
+    thud(.7); G.shake=9; G.flash=.25; G.flashCol=b.def.col;
+    tone(300+b.hp*120,.15,'square',.2,-100);
+    floatText('Босс: '+b.hp+'/'+b.hpMax,hx,hy-30,b.def.col,20);
+    updateBossBar();
+    if(b.hp<=0){                                   // ТИТАН ПОВЕРЖЕН
+      G.boss=null; G.bossesKilled++;
+      const pts=300+150*G.bossesKilled+G.combo*5;
+      G.score+=pts; G.combo+=10; G.maxCombo=Math.max(G.maxCombo,G.combo);
+      boomFX(CX+Math.cos(b.a)*R,CY+Math.sin(b.a)*R);
+      G.flash=.8; G.flashCol='#ffd23f'; G.shake=18;
+      jingle(10); tone(150,.8,'sawtooth',.2,600);
+      banner('☠ ТИТАН РАЗБИТ! +'+pts,'#ffd23f');
+      G.nextBoss=G.score+550+300*G.bossesKilled;
+      G.spawnTimer=Math.min(G.spawnTimer,0.8);
+      updateHUD();
+    }
+  }else{                                           // бил по неуязвимому — отдача!
+    if(b.hitCd>0)return;
+    b.hitCd=.6;
+    loseLife(hx,hy,'ОТДАЧА!');
+    tone(90,.3,'square',.25,-40);
+    G.deathCause='reflect';
+  }
 }
 
 function burst(p, big){
@@ -271,9 +430,58 @@ function burst(p, big){
       r:rand(1,3),col:p.pal.stroke,rot:0,vr:0,glow:true});
   }
 }
+function boomFX(x,y){ // взрыв бомбы: оранжевое пламя + дым
+  for(let i=0;i<34;i++){
+    const ang=rand(0,TAU), sp=rand(80,560);
+    G.parts.push({x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp-60,life:rand(.4,1),t:0,
+      r:rand(3,10),col:pick(['#ff5c39','#ffd23f','#ff9a3c','#3d3d5c']),rot:rand(0,TAU),vr:rand(-8,8)});
+  }
+  for(let i=0;i<12;i++){
+    const ang=rand(0,TAU), sp=rand(40,160);
+    G.parts.push({x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp-30,life:rand(.8,1.4),t:0,
+      r:rand(8,16),col:'#55556a',rot:0,vr:0});
+  }
+}
 
 function floatText(txt,x,y,col,size){
   G.floats.push({txt,x,y,col,size:size||22,t:0,life:1.1});
+}
+
+/* ---------- блиц-события: случайные безумные модификаторы ---------- */
+const EVENTS=[
+  {id:'reverse', dur:8,  name:'⬛ ОБРАТНАЯ ОРБИТА!', col:'#7b4dff', min:500, fn(){ reverseSpin('событие'); }},
+  {id:'harvest', dur:9,  name:'🌾 ЖАТВА! x3 ОЧКОВ',  col:'#ffd23f', min:300},
+  {id:'frenzy',  dur:6,  name:'💥 БЕЗУМИЕ СКОРОСТИ', col:'#ff5c39', min:700},
+  {id:'darkness',dur:8,  name:'🌑 ЗАТМЕНИЕ',         col:'#8f8fc0', min:900},
+];
+function banner(txt,col){
+  const el=document.getElementById('event');
+  el.textContent=txt; el.style.color=col||'#ffd23f';
+  el.classList.add('show');
+  clearTimeout(banner._t);
+  banner._t=setTimeout(()=>el.classList.remove('show'),1800);
+}
+function triggerEvent(ev){
+  G.event=ev; G.evT=ev.dur;
+  banner(ev.name,ev.col);
+  tone(440,.2,'triangle',.15,300); tone(660,.25,'triangle',.15,-200,.1);
+  if(ev.id==='reverse') ev.fn();
+  if(ev.id==='harvest'){ spawnPlanet('core'); spawnPlanet('core'); }   // сыплются золотые ядра
+}
+function clearEvent(silent){
+  if(G.event&&!silent&&G.event.id==='reverse') setDir(1,true);
+  G.event=null; G.evT=0;
+}
+function reverseSpin(src){
+  setDir(-G.dirSign,true);
+  floatText('🌀 РЕВЕРС!',CX,CY-orbitRadius()-40,'#7b4dff',26);
+}
+function setDir(s,quiet){
+  G.dirSign=s;
+  if(quiet){
+    // резкий импульс разворота: молот моментально получает скорость в новую сторону
+    G.angSpeed=-G.angSpeed*0.55+s*0.8;
+  }
 }
 
 /* ------------------------------ input ------------------------------ */
@@ -293,18 +501,30 @@ window.addEventListener('keydown',e=>{
 });
 
 /* --------------------- autopilot / test harness --------------------- */
-// Клавиша T (или вызов startAuto() из консоли) включает робота-игрока:
-// он бьёт молотом ровно тогда, когда планета входит в зону удара.
-// Нужно для автотестов: можно прогнать часы игры без человека.
+// Клавиша T (или startAuto() из консоли) — робот-игрок: бьёт точно в момент
+// входа цели в зону удара, НЕ трогает бомбы и босса (только добивает его
+// когда тот уязвим). Для стресс-тестов баланса.
 let AUTO=false, autoTimer=null;
 function autoTick(){
   if(!AUTO)return;
-  if(G.mode==='menu'||G.mode==='dead'){ startGame(); }
-  const R=orbitRadius(), tol=(14+16)/R;
+  if(G.mode==='menu'||G.mode==='dead'){ startGame(); return; }
+  // рой: жалим дронов в упор (уворачиваться робот не умеет — тест честности)
+  for(const dr of G.drones){
+    if(dr.dead)continue;
+    const d=Math.abs(angDist(dr.a,G.angle));
+    if(d<tol({r:dr.r})*0.5){ swing(); return; }
+  }
+  const b=G.boss;
+  if(b){                                                 // робот ждёт красную фазу
+    if(b.state==='vuln'&&Math.abs(angDist(b.a,G.angle))<tol({r:30})*0.6){ swing(); return; }
+    return;                                              // пока босс активен — планет не трогаем
+  }
   for(const p of G.planets){
-    if(!p.alive)continue;
-    // упреждение: молот движется быстрее планеты, ждём сближения
-    if(Math.abs(angDist(p.a,hitAngle()))<=tol*0.5){ swing(); break; }
+    if(!p.alive||p.type==='bomb')continue;               // бомбы обходим — иначе сам подорвётся
+    if(p.type==='tyrant')continue;                        // реверс-цель робот не трогает
+    const tolA=tol(p)/relSpd(p);                          // ширина окна в секундах
+    const tHit=(angDist(hitAngle(),p.a))/relSpd(p);       // сколько секунд до совпадения
+    if(tHit>0 && tHit<=tolA*0.35){ swing(); break; }
   }
 }
 function startAuto(ms){
@@ -316,41 +536,95 @@ function startAuto(ms){
 }
 window.startAuto=startAuto;
 
+function tol(p){ return (p.r+16)/orbitRadius(); }         // радиус терпимости в угле
+
 function swing(){
   if(G.mode!=='play')return;
   whoosh();
-  const R=orbitRadius();
+  const ha=hitAngle();
+  // --- сначала проверяем босса: удар по Титану ---
+  const b=G.boss;
+  if(b){
+    const d=Math.abs(angDist(b.a,ha));
+    if(d<tol({r:30})){ bossHit(b); return; }
+  }
   let hit=null, bestD=1e9;
   for(const p of G.planets){
     if(!p.alive)continue;
-    const d=Math.abs(angDist(p.a,hitAngle()));
-    const tol=(p.r+16)/R;                                // angular tolerance scales w/ planet size
-    if(d<tol && d<bestD){ bestD=d; hit=p; }
+    if(p.type==='ghost' && !p.visible) continue;          // призрачным нельзя попасть
+    const d=Math.abs(angDist(p.a,ha));
+    const t=tol(p);
+    if(d<t && d<bestD){ bestD=d; hit=p; }
   }
-  if(hit) crush(hit,bestD<tol(hit)*0.45);
-  else missSwing();
+  if(!hit){ tone(120,.12,'square',.08,-40); G.shake=Math.max(G.shake,3); return; }
+  if(hit.type==='bomb'){ G.deathPlanet=hit; detonate(hit); return; }
+  if(hit.type==='tyrant'){                               // Тиран: не убивается — реверс!
+    hit.alive=false;
+    G.combo=0;
+    reverseSpin('tyrant');
+    boomFX(CX+Math.cos(hit.a)*orbitRadius(),CY+Math.sin(hit.a)*orbitRadius());
+    G.flash=.5; G.flashCol='#7b4dff'; G.shake=12;
+    tone(200,.5,'sawtooth',.2,-150);
+    floatText('🌀 РЕВЕРС!',CX,CY-40,'#7b4dff',30);
+    return;
+  }
+  const perfect = bestD < tol(hit)*0.45;
+  if(hit.hp>1){                                           // кристалл: первый удар — только трещина
+    hit.hp--; hit.cracked=true;
+    thud(.35); G.shake=Math.max(G.shake,4);
+    const R=orbitRadius(), x=CX+Math.cos(hit.a)*R, y=CY+Math.sin(hit.a)*R;
+    floatText('ТРЕЩИНА!',x,y-20,'#4cc9f0',18);
+    tone(600,.1,'triangle',.12,-200);
+    return;
+  }
+  crush(hit,perfect);
 }
-function tol(p){ return (p.r+16)/orbitRadius(); }
+
+/* ---------- рой: сбитая матка рассыпается на дронов, летящих НА молот ---------- */
+function spawnDrone(fromA){
+  const dir=Math.sign(G.angSpeed)||G.dirSign;
+  G.drones.push({
+    a:(fromA+rand(-0.3,0.3)+TAU)%TAU,
+    spd:-dir*rand(2.2,3.2),                               // летит НАВСТРЕЧУ молоту
+    r:8, t:0, life:rand(1.4,2.2), wob:rand(0,TAU),
+  });
+}
+function droneHit(dr,x,y){
+  dr.dead=true;
+  G.combo=0;
+  loseLife(x,y,'🐝 ЖАЛО!');
+  burst({pal:{fill:'#ffd23f',dust:'#ff9a3c',stroke:'#fff'},a:dr.a,r:10},false);
+  tone(140,.25,'square',.2,-80);
+}
 
 function crush(p, perfect){
   p.alive=false;
   G.crushed++; G.combo++;
   G.maxCombo=Math.max(G.maxCombo,G.combo);
-  const mult = (G.shield?2:1);
-  let pts = (p.core?50:10) + Math.floor(G.combo/2)*2;
+  const mult=(G.shield?2:1)*(G.event&&G.event.id==='harvest'?3:1);
+  let base = p.core?50 : p.type==='ice'?25 : p.type==='ghost'?30 : p.type==='swarm'?20 : 10;
+  let pts = base + Math.floor(G.combo/2)*2;
   if(perfect) pts*=2;
   pts*=mult;
   G.score+=pts;
   const R=orbitRadius(), x=CX+Math.cos(p.a)*R, y=CY+Math.sin(p.a)*R;
-  burst(p,p.core||perfect);
+  burst(p,p.core||perfect||p.type==='ice'||p.type==='swarm');
   thud(p.core?.8:.5);
   G.shake=Math.min(10,(p.core?9:5)+(perfect?3:0));
   if(perfect){ G.flash=.35; G.flashCol='#ffffff'; }
-  floatText((perfect?'ИДЕАЛЬНО ':'')+'+'+pts, x, y-24, p.core?'#ffd23f':perfect?'#b8ff2e':'#f2ede4', perfect?26:20);
+  floatText((perfect?'ИДЕАЛЬНО ':'')+'+'+pts+(mult>2?' 🔥x3':''), x, y-24, p.core?'#ffd23f':perfect?'#b8ff2e':'#f2ede4', perfect?26:20);
+  if(p.type==='swarm'){                                   // матка разбита — дроны летят на молот!
+    for(let i=0;i<4;i++) spawnDrone(p.a);
+    floatText('🐝 РОЙ РАССЕЯН!',x,y-48,'#ffd23f',18);
+    tone(500,.2,'sawtooth',.15,-300);
+  }
   if(p.core){
+    G.combo+=15;                                          // ядро разгоняет серию
+    G.lives=Math.min(3,G.lives+1);                        // и возвращает жизнь
     G.shield=true; G.flash=.5; G.flashCol='#ffd23f';
     tone(520,.25,'triangle',.2,300); tone(780,.3,'triangle',.15,200,.08);
-    floatText('ЩИТ x2', CX, CY-orbitRadius()-60,'#ffd23f',30);
+    floatText('ЩИТ x2 · КОМБО +15 · +1 ЖИЗНЬ', CX, CY-orbitRadius()-60,'#ffd23f',24);
+    updateLives();
     clearTimeout(G._shieldTO); G._shieldTO=setTimeout(()=>{G.shield=false;}, 6000);
   }
   if(G.combo>0 && G.combo%5===0){
@@ -360,22 +634,45 @@ function crush(p, perfect){
   updateHUD();
 }
 
-function missSwing(){
-  tone(120,.12,'square',.08,-40);
-  G.shake=Math.max(G.shake,3);
+function detonate(b){ // ударили по бомбе — конец серии, минус жизни, ослепление
+  b.alive=false;
+  G.deathCause='boom';
+  const R=orbitRadius(), x=CX+Math.cos(b.a)*R, y=CY+Math.sin(b.a)*R;
+  boomFX(x,y);
+  G.combo=0;
+  G.flash=.9; G.flashCol='#ff5c39'; G.shake=16;
+  failSound(); thud(.9);
+  loseLife(x,y,'💣 ВЗРЫВ!');
 }
 
-function die(p){
-  if(G.shield){                          // shield eats one mistake
+function missPlanet(p){ // планета проскочила зону удара живой
+  p.alive=false;
+  G.combo=0;
+  G.deathCause='miss';
+  const R=orbitRadius(), x=CX+Math.cos(p.a)*R, y=CY+Math.sin(p.a)*R;
+  loseLife(x,y,'МИМО!');
+}
+
+function loseLife(x,y,label){
+  if(G.shield){                        // щит гасит удар: жизнь цела
     G.shield=false;
-    burst(p,false); p.alive=false;
     G.flash=.6; G.flashCol='#ffd23f'; G.shake=12;
     tone(300,.4,'sawtooth',.2,-200);
-    floatText('ЩИТ ПОГЛОТИЛ УДАР!',CX,CY-40,'#ffd23f',26);
-    G.combo=0; updateHUD();
-    return;
+    floatText('ЩИТ СПАС!',CX,CY-40,'#ffd23f',26);
+    updateHUD(); return;
   }
-  G.mode='dead'; G.deathTimer=0; G.deathPlanet=p||null;
+  if(label.indexOf('ЖАЛО')>=0) G.deathCause='sting';
+  G.lives--;
+  G.shake=12; G.flash=.4; G.flashCol='#ff5c39';
+  tone(200,.3,'sawtooth',.15,-120);
+  floatText(label,x,y,'#ff5c39',24);
+  updateLives();
+  if(G.lives<=0) die();
+  else updateHUD();
+}
+
+function die(){
+  G.mode='dead'; G.deathTimer=0;
   G.shake=16; G.flash=.7; G.flashCol='#ff5c39';
   failSound();
   if(G.score>G.best){ G.best=G.score; localStorage.setItem('orbitcrush_best',G.best); }
@@ -385,17 +682,29 @@ function die(p){
 /* ------------------------------ game flow -------------------------- */
 function startGame(){
   clearTimeout(G._shieldTO);
-  Object.assign(G,{mode:'play',score:0,combo:0,maxCombo:0,crushed:0,shield:false,
-    angle:0,angSpeed:2.1,planets:[],parts:[],floats:[],ringDust:[],spawnTimer:.9,shake:0,flash:0,anglePrev:0});
+  Object.assign(G,{mode:'play',score:0,combo:0,maxCombo:0,crushed:0,shield:false,lives:3,
+    angle:0,angSpeed:2.1,dirSign:1,planets:[],parts:[],floats:[],ringDust:[],drones:[],spawnTimer:.9,shake:0,flash:0,anglePrev:0,
+    deathPlanet:null,deathCause:'miss',lastType:'',lastAt:-99,
+    boss:null,bossesKilled:0,nextBoss:600,event:null,evT:0,nextEvent:7});
+  document.getElementById('bossbar').classList.remove('on');
   document.getElementById('menu').classList.add('hidden');
   document.getElementById('dead').classList.add('hidden');
   document.getElementById('hud').classList.add('on');
-  updateHUD();
+  updateLives(); updateHUD();
 }
 
 const hudScore=document.getElementById('score'), hudBest=document.getElementById('best'),
       hudCombo=document.getElementById('combo'), hudPhase=document.getElementById('phase'),
-      hudSpeed=document.getElementById('speedfill');
+      hudSpeed=document.getElementById('speedfill'), hudLives=document.getElementById('lives');
+function updateLives(){
+  hudLives.classList.add('on');
+  hudLives.innerHTML='';
+  for(let i=0;i<3;i++){
+    const el=document.createElement('div');
+    el.className='life'+(i<G.lives?'':' lost');
+    hudLives.appendChild(el);
+  }
+}
 function updateHUD(){
   hudScore.textContent=G.score;
   hudBest.textContent='РЕКОРД '+G.best;
@@ -407,17 +716,32 @@ function updateHUD(){
 }
 
 const TIPS=[
-  'Совет: держи ритм — молот вращается ровно, планеты прилетают с обеих сторон.',
-  'Совет: золотое ядро даёт щит — один промах будет прощён.',
-  'Совет: попадание точно в центр молота = «ИДЕАЛЬНО» и двойные очки.',
-  'Совет: комбо x5, x10… дают музыкальные всплески и жирные бонусы.',
-  'Совет: не спамь удары — пустой взмах сбивает чувство ритма.',
-  'Совет: чем выше счёт, тем быстрее молот. На 3000+ он почти неудержим.',
+  'Совет: бомбы НЕ бей — пропусти её по орбите, она сама сгорит вдали.',
+  'Совет: кристалл требует двух ударов подряд: трещина, потом скол.',
+  'Совет: призрак виден только в самой зоне удара — бей на последнем издыхании.',
+  'Совет: золотое ядро = щит (спасает одну жизнь) и +15 к комбо сразу.',
+  'Совет: «ИДЕАЛЬНО» — это попадание точно в центр молота, очки x2.',
+  'Совет: рой бей последним ударом — дроны летят НА молот, ждём их в упор.',
+  'Совет: Тиран 🌀 лучше пропустить: удар по нему разворачивает всю орбиту.',
+  'Совет: босс уязвим только когда его полоса красная. Бьёшь заранее — получаешь ОТДАЧУ.',
+  'Совет: реверс вращения можно обратить, ударив по Тирану ещё раз.',
+  'Совет: во время ЖАТВЫ все очки тройные — добивай комбо!',
 ];
+const CAUSES={
+  miss:    ['СЛИШКОМ МЕДЛЕННО','miss'],       // цели проскакивали мимо молота
+  boom:    ['САМ ВЗОРВАЛСЯ','boom'],          // бил по бомбам — жадность до комбо наказана
+  reflect: ['РАЗБился О БОССА','greed'],      // лупил по неуязвимому Титану
+  sting:   ['УКУСИЛИ','boom'],                // рой отомстил
+};
 function showDead(){
+  const c=document.getElementById('cause');
+  const [txt,cls]=CAUSES[G.deathCause]||['МОЛОТ СЛОМАН','miss'];
+  c.textContent=txt; c.className='stamp '+cls;
   document.getElementById('d-score').textContent=G.score;
   document.getElementById('d-crush').textContent=G.crushed;
   document.getElementById('d-combo').textContent='x'+G.maxCombo;
+  document.getElementById('d-bosses').textContent=G.bossesKilled;
+  document.getElementById('d-phase').textContent=phaseFor(G.score).phase;
   document.getElementById('newbest').textContent=(G.score>=G.best&&G.score>0)?'★ НОВЫЙ РЕКОРД ★':'';
   document.getElementById('tip').textContent=pick(TIPS);
   document.getElementById('dead').classList.remove('hidden');
@@ -429,31 +753,146 @@ document.getElementById('hiscore-line').textContent = G.best>0?('РЕКОРД: '
 let last=performance.now();
 function update(dt){
   G.time+=dt;
-  // hammer rotation
+  // hammer rotation — направление зависит от dirSign (реверсы Тирана и событий!)
   if(G.mode==='play'){
-    const target=2.1+diff()*3.1;
+    let target=(2.1+diff()*3.1)*G.dirSign;
+    if(G.event&&G.event.id==='frenzy') target*=1.8;
+    if(G.boss) target*=0.85;                       // с боссом темп чуть спокойнее
     G.angSpeed=lerp(G.angSpeed,target,dt*0.5);
-    // fairness invariant: hammer must gain on every planet by >= 0.5 rad/s
-    for(const p of G.planets) if(G.angSpeed-p.spd<0.5) G.angSpeed=p.spd+0.5;
+    // fairness invariant: попутная цель ВСЕГДА будет настигнута молотом —
+    // либо крутим молот быстрее неё, либо (молот стоит) сама цель едет к нему.
+    for(const p of G.planets){
+      if(!p.alive||p.type==='bomb'||p.type==='tyrant')continue;
+      const ahead=((p.a-G.angle+TAU)%TAU);
+      if(p.spd*G.dirSign>=0 && ahead<Math.PI && (Math.abs(G.angSpeed)-p.spd*G.dirSign)<0.5){
+        if(Math.abs(G.angSpeed)>=0.2) G.angSpeed=p.spd*G.dirSign+0.5*G.dirSign;
+        else p.spd=G.dirSign*(-0.8);          // молот стоит — цель едет к нему сама
+      }
+    }
     G.anglePrev=G.angle;
-    G.angle=(G.angle+G.angSpeed*dt)%TAU;
-    // spawning
-    G.spawnTimer-=dt;
-    const interval=lerp(1.35,0.55,diff())*rand(0.8,1.2);
-    if(G.spawnTimer<=0){ spawnPlanet(); G.spawnTimer=interval; }
-    // planets move & miss-detection: relative angle to the hammer must shrink
-    // monotonically toward 0; when it flips sign => hit window was skipped => death
+    G.angle=(G.angle+G.angSpeed*dt+TAU)%TAU;
+    // ---- spawning ----
+    if(!G.boss){
+      G.spawnTimer-=dt;
+      let interval=lerp(1.35,0.55,diff())*rand(0.8,1.2);
+      if(G.event&&G.event.id==='harvest') interval*=0.45;
+      if(G.spawnTimer<=0){ spawnPlanet(); G.spawnTimer=interval; }
+    }
+    // ---- босс ----
+    if(!G.boss&&G.score>=G.nextBoss&&G.planets.every(p=>!p.alive)) spawnBoss();
+    if(G.boss){
+      const b=G.boss;
+      b.t-=dt; b.flashT=Math.max(0,b.flashT-dt); b.hitCd=Math.max(0,b.hitCd-dt);
+      b.a=(b.a+b.spin*dt*(b.state==='vuln'?1.6:1)+TAU)%TAU;   // в красной фазе босс носится быстрее
+      if(b.t<=0){
+        if(b.state==='calm'){
+          b.state='vuln'; b.t=b.def.vulnDur;
+          setBossState('🔥 УЯЗВИМ! БЕЙ!');
+          tone(880,.15,'square',.18,400); tone(880,.15,'square',.18,400,.2);
+        }else{
+          b.state='calm'; b.t=b.def.calm;
+          setBossState('НЕУЯЗВИМ — ЖДИ');
+          tone(220,.3,'sawtooth',.15,-120);
+        }
+      }
+    }
+    // ---- дроны роя: летят НА молот, столкновение = жало ----
+    {
+      const R=orbitRadius();
+      for(const dr of G.drones){
+        if(dr.dead)continue;
+        dr.t+=dt; dr.a=(dr.a+dr.spd*dt+TAU)%TAU; dr.wob+=dt*10;
+        const d=angDist(dr.a,G.angle);
+        if(Math.abs(d)<tol({r:dr.r})){ droneHit(dr,CX+Math.cos(dr.a)*R,CY+Math.sin(dr.a)*R); continue; }
+        if(dr.t>dr.life) dr.dead=true;             // истаял сам — улетел
+      }
+      G.drones=G.drones.filter(dr=>!dr.dead);
+    }
+    // ---- блиц-события ----
+    if(G.event){
+      G.evT-=dt;
+      if(G.evT<=0) clearEvent();
+    }else if(G.score>=300&&!G.boss){
+      G.nextEvent-=dt;
+      if(G.nextEvent<=0){
+        const avail=EVENTS.filter(e=>G.score>=e.min);
+        if(avail.length) triggerEvent(pick(avail));
+        G.nextEvent=rand(14,22);
+      }
+    }
+    // planets move & judging
     for(const p of G.planets){
       if(!p.alive)continue;
-      p.a+=p.spd*dt; p.spin+=p.spinSpd*dt; p.wob+=dt*3;
-      const d=angDist(p.a,hitAngle());
+      p.a=(p.a+p.spd*dt+TAU)%TAU; p.spin+=p.spinSpd*dt; p.wob+=dt*3;   // нормализация угла — без накопления draka
+      const d=angDist(p.a,hitAngle());        // >0 = цель впереди молота, <0 = позади
+      const t=tol(p), R=orbitRadius();
+      p.visible = !(p.type==='ghost') || Math.abs(d)<t*1.6;   // призрак «материализуется» у зоны
       if(p.prevD===null)p.prevD=d;
-      const t=tol(p);
-      const crossedOver = p.prevD>t && d<-t;   // hammer swept past it un-smashed => missed
+      const rel=G.angSpeed-p.spd;             // скорость закрытия для попутных целей
+      const crossed = p.prevD>t && d<-t;      // молот перемёл цель живой
+
+      if(p.type==='bomb'){
+        if(crossed){                            // бомба ПРОЛЕТЕЛА мимо — это правильно!
+          p.alive=false;
+          G.combo++; G.maxCombo=Math.max(G.maxCombo,G.combo);
+          const pts=Math.round((15+G.combo)*relSpd(p)/3.5)*(G.shield?2:1);
+          G.score+=pts;
+          boomFX(CX+Math.cos(p.a)*R,CY+Math.sin(p.a)*R);
+          tone(70,.3,'sine',.25,-40); tone(950,.12,'triangle',.1,-500);
+          floatText('УШЛА +'+pts,CX+Math.cos(p.a)*R,CY+Math.sin(p.a)*R-26,'#b8ff2e',20);
+          if(G.combo%5===0){ jingle(G.combo); floatText('ХОРОШИЙ ВЫДЕРЖКИ x'+G.combo,CX,CY+R+70,'#b8ff2e',26); }
+          updateHUD(); continue;
+        }
+        // bomb flees the hammer head so it never sweeps past on its own —
+        // the ONLY way a bomb explodes is if YOU hit it. Pure restraint test.
+        if(Math.abs(d)<Math.PI){
+          const dir=d>0?-1:1;                   // убегаем от ближней стороны молота
+          if(Math.abs(G.angSpeed)<0.2&&d<0)p.spd=Math.max(p.spd,0.7); // молот стоит — не тараним его, а уползаем
+          let bs=Math.min(relSpd(p)*1.35*R, 2.6*R);   // px/s along orbit
+          bs*=(1+clamp((Math.PI-Math.abs(d))/Math.PI,0,1)*1.4); // чем ближе — тем быстрее
+          p.spd += (dir*bs/R - p.spd)*Math.min(1,dt*7);
+        } else {                                 // далеко — дрейфуем по орбите
+          const base=Math.max(0.4,G.angSpeed-1.2);
+          p.spd += ((d>0?base:-base) - p.spd)*Math.min(1,dt*2);
+        }
+        p.prevD=d; continue;
+      }
+
+      if(p.type==='tyrant'){                    // Тиран НЕ наказывается за пропуск — он угроза сама по себе
+        if(crossed){ p.alive=false; continue; }
+        p.prevD=d; continue;
+      }
+
+      if(p.type==='swarm'){                     // Матка — обычная цель: её НАДО разбить,
+        if(crossed){                             //   пропуск = минус жизнь (см. missPlanet ниже)
+          G.deathPlanet=p;
+          missPlanet(p); break;
+        }
+        p.prevD=d; continue;
+      }
+
+      if(crossed){                              // обычная/кристалл/призрак/ядро проскочили
+        if(p.type==='ice' && p.cracked){        // треснутый кристалл можно отпустить:
+          p.alive=false;                        // половина очков уже «в кармане»
+          floatText('ОТПУСК +12',CX+Math.cos(p.a)*R,CY+Math.sin(p.a)*R-20,'#4cc9f0',18);
+          G.score+=12*(G.shield?2:1); updateHUD(); continue;
+        }
+        G.deathPlanet=p;                        // череп виновницы на экране смерти
+        missPlanet(p); break;                   // комбо сбрасывается, минус жизнь
+      }
+      if(p.type==='ice' && p.hp>1 && d<-t*0.35 && !p.released){
+        p.released=true;                        // первый удар засчитан — отпускаем кристалл
+        p.alive=false;
+        G.combo++; G.maxCombo=Math.max(G.maxCombo,G.combo);
+        const pts=Math.round(15*relSpd(p)/3.5)*(G.shield?2:1);
+        G.score+=pts;
+        floatText('ОТПУЩЕН +'+pts,CX+Math.cos(p.a)*R,CY+Math.sin(p.a)*R-20,'#4cc9f0',20);
+        tone(880,.15,'triangle',.12,200);
+        updateHUD(); continue;
+      }
       p.prevD=d;
-      if(crossedOver){ p.alive=false; die(p); break; }
       // safety despawn only while still approaching (never punish a passed planet)
-      if(d>tol(p) && G.angSpeed-p.spd<0.05 && Math.abs(d)>Math.PI*0.95){
+      if(d>t && rel<0.05 && Math.abs(d)>Math.PI*0.95){
         p.loose=(p.loose||0)+dt; if(p.loose>3)p.alive=false;
       }
     }
@@ -516,6 +955,43 @@ function drawOrbit(R){
   ctx.globalAlpha=1;
 }
 
+function drawBoss(R){
+  const b=G.boss; if(!b)return;
+  const vuln=b.state==='vuln';
+  const x=CX+Math.cos(b.a)*R, y=CY+Math.sin(b.a)*R;
+  if(vuln){   // пульсирующее красное кольцо-мишень вокруг босса = «бей сейчас!»
+    ctx.save();
+    const pr=48+6*Math.sin(G.time*10);
+    ctx.strokeStyle='rgba(255,92,57,0.85)'; ctx.lineWidth=3;
+    ctx.setLineDash([10,8]); ctx.lineDashOffset=-G.time*40;
+    ctx.beginPath(); ctx.arc(x,y,pr,0,TAU); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.save(); ctx.translate(x,y);
+  const col=vuln?'#ff5c39':b.def.col;
+  const pulse=0.5+0.5*Math.sin(G.time*(vuln?12:5));
+  ctx.shadowColor=col; ctx.shadowBlur=(vuln?26:14)+12*pulse;
+  ctx.fillStyle=b.flashT>0?'#ffffff':'#14141f';
+  ctx.beginPath(); ctx.arc(0,0,30,0,TAU); ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.strokeStyle=col; ctx.lineWidth=3.5;
+  ctx.beginPath(); ctx.arc(0,0,30,0,TAU); ctx.stroke();
+  // глаз босса следит за молотом
+  const look=angDist(G.angle,b.a);
+  ctx.fillStyle=col;
+  ctx.beginPath(); ctx.arc(Math.cos(look)*8,Math.sin(look)*8,11,0,TAU); ctx.fill();
+  ctx.fillStyle='#07070f';
+  ctx.beginPath(); ctx.arc(Math.cos(look)*10,Math.sin(look)*10,4.5,0,TAU); ctx.fill();
+  // щит-кольцо когда неуязвим
+  if(!vuln){
+    ctx.strokeStyle='rgba(143,143,192,0.6)'; ctx.lineWidth=2;
+    ctx.setLineDash([6,6]); ctx.lineDashOffset=G.time*20;
+    ctx.beginPath(); ctx.arc(0,0,40,0,TAU); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
 function drawHitZone(R){
   const ha=hitAngle();
   const x=CX+Math.cos(ha)*R, y=CY+Math.sin(ha)*R;
@@ -529,8 +1005,30 @@ function drawHitZone(R){
 
 function drawPlanet(p,R){
   const x=CX+Math.cos(p.a)*R, y=CY+Math.sin(p.a)*R + Math.sin(p.wob)*2;
+  if(p.type==='ghost' && !p.visible){          // призрак — едва заметный силуэт
+    ctx.save(); ctx.globalAlpha=0.10;
+    ctx.strokeStyle='#b8ff2e'; ctx.lineWidth=2; ctx.setLineDash([4,6]);
+    ctx.beginPath(); ctx.arc(x,y,p.r,0,TAU); ctx.stroke();
+    ctx.restore(); return;
+  }
   ctx.save(); ctx.translate(x,y); ctx.rotate(p.spin);
-  if(p.core){
+  if(p.type==='bomb'){                          // чёрная бомба с fuse-искрами и красным пульсом
+    const pulse=0.5+0.5*Math.sin(G.time*9+p.wob);
+    ctx.shadowColor='#ff5c39'; ctx.shadowBlur=10+14*pulse;
+    ctx.fillStyle='#14141f';
+    ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.strokeStyle=`rgba(255,92,57,${0.5+0.5*pulse})`; ctx.lineWidth=3; ctx.stroke();
+    ctx.strokeStyle='#ffd23f'; ctx.lineWidth=2.5;      // фитиль
+    ctx.beginPath(); ctx.moveTo(0,-p.r+2); ctx.quadraticCurveTo(6,-p.r-8,2,-p.r-13); ctx.stroke();
+    for(let i=0;i<3;i++){                               // искры
+      const a=G.time*11+i*2.1, rr=p.r+8+4*Math.sin(a*1.7);
+      ctx.fillStyle=i%2?'#ffd23f':'#ff9a3c';
+      ctx.beginPath(); ctx.arc(Math.cos(a)*rr*0.3,-p.r-11+Math.sin(a)*3,1.8,0,TAU); ctx.fill();
+    }
+    ctx.fillStyle=`rgba(255,92,57,${0.25+0.3*pulse})`;   // крест-запрет внутри
+    ctx.fillRect(-p.r*0.5,-2.5,p.r,5); ctx.fillRect(-2.5,-p.r*0.5,5,p.r);
+  }else if(p.core){
     const pulse=0.5+0.5*Math.sin(G.time*5+p.wob);
     ctx.shadowColor='#ffd23f'; ctx.shadowBlur=18+10*pulse;
     ctx.fillStyle='#ffd23f';
@@ -541,18 +1039,80 @@ function drawPlanet(p,R){
     ctx.shadowBlur=0; ctx.fillStyle='#fff8d6';
     ctx.beginPath(); ctx.arc(0,0,p.r*0.3,0,TAU); ctx.fill();
   }else{
+    const ghost = p.type==='ghost';
+    if(ghost){ ctx.globalAlpha=0.85; ctx.shadowColor='#b8ff2e'; ctx.shadowBlur=16; }
     ctx.fillStyle=p.pal.fill;
     ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill();
     ctx.strokeStyle=p.pal.stroke; ctx.lineWidth=2.5; ctx.stroke();
-    ctx.fillStyle='rgba(0,0,0,0.22)';
-    for(const c of p.craters){ ctx.beginPath();
-      ctx.arc(Math.cos(c.ang)*p.r*c.d,Math.sin(c.ang)*p.r*c.d,p.r*c.s,0,TAU); ctx.fill(); }
-    // shading crescent
-    ctx.fillStyle='rgba(0,0,0,0.25)';
-    ctx.beginPath(); ctx.arc(p.r*0.35,p.r*0.25,p.r*0.95,0,TAU);
-    ctx.save(); ctx.clip(); ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill(); ctx.restore();
+    ctx.shadowBlur=0;
+    if(p.type==='swarm'){                                // матка роя: жёлто-чёрная, с «крыльями»
+      ctx.fillStyle='#14141f';
+      ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill();
+      for(let i=0;i<5;i++){ const y=-p.r*0.7+i*p.r*0.35;
+        ctx.fillStyle=i%2?'#ffd23f':'#14141f';
+        ctx.fillRect(-p.r*0.8,y,p.r*1.6,p.r*0.3); }
+      ctx.strokeStyle='#ffd23f'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.stroke();
+      const flap=Math.sin(G.time*30+p.wob)*0.5+0.5;      // трепещущие крылья
+      ctx.fillStyle='rgba(224,251,255,0.5)';
+      ctx.beginPath(); ctx.ellipse(-p.r*0.9,-p.r*0.4,p.r*0.7,p.r*0.28*(0.4+flap),-0.6,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(p.r*0.9,-p.r*0.4,p.r*0.7,p.r*0.28*(0.4+flap),0.6,0,TAU); ctx.fill();
+      ctx.fillStyle='#ff5c39';                           // глаза
+      ctx.beginPath(); ctx.arc(-p.r*0.3,-p.r*0.35,2.6,0,TAU); ctx.arc(p.r*0.3,-p.r*0.35,2.6,0,TAU); ctx.fill();
+    }else if(p.type==='tyrant'){                          // тиран: фиолетовый вихрь со стрелками реверса
+      const rot=G.time*3;
+      ctx.rotate(rot);
+      for(let i=0;i<4;i++){
+        ctx.strokeStyle=i%2?'#7b4dff':'#b8ff2e'; ctx.lineWidth=4;
+        ctx.beginPath(); ctx.arc(0,0,p.r*(0.9-i*0.2),i*1.4,i*1.4+2.2); ctx.stroke();
+      }
+      ctx.rotate(-rot);
+      ctx.fillStyle='#e0d5ff';                           // две встречные стрелки
+      ctx.font='bold 14px Orbitron'; ctx.textAlign='center';
+      ctx.fillText('⇄',0,5);
+    }else if(p.type==='ice'){                             // ледяной многоугольник + трещины
+      ctx.strokeStyle='rgba(255,255,255,0.75)'; ctx.lineWidth=1.5;
+      for(let i=0;i<6;i++){ const a=i*TAU/6+0.4;
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*p.r*0.9,Math.sin(a)*p.r*0.9); ctx.stroke(); }
+      if(p.cracked){
+        ctx.strokeStyle='#e0fbff'; ctx.lineWidth=2.5;
+        ctx.beginPath(); ctx.moveTo(-p.r*0.7,-p.r*0.3); ctx.lineTo(-p.r*0.1,p.r*0.1);
+        ctx.lineTo(p.r*0.3,-p.r*0.4); ctx.lineTo(p.r*0.75,p.r*0.2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p.r*0.1,p.r*0.7); ctx.lineTo(p.r*0.3,-p.r*0.4); ctx.stroke();
+      }
+    }
+    if(!ghost && !p.core && p.type!=='bomb'){
+      ctx.fillStyle='rgba(0,0,0,0.22)';
+      for(const c of p.craters){ ctx.beginPath();
+        ctx.arc(Math.cos(c.ang)*p.r*c.d,Math.sin(c.ang)*p.r*c.d,p.r*c.s,0,TAU); ctx.fill(); }
+      // shading crescent
+      ctx.fillStyle='rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.arc(p.r*0.35,p.r*0.25,p.r*0.95,0,TAU);
+      ctx.save(); ctx.clip(); ctx.beginPath(); ctx.arc(0,0,p.r,0,TAU); ctx.fill(); ctx.restore();
+    }
+    if(ghost){                                            // глаз-щель призрака
+      ctx.globalAlpha=1; ctx.fillStyle='#0d1a0d';
+      ctx.fillRect(-p.r*0.55,-3,p.r*1.1,6);
+      ctx.fillStyle='#b8ff2e'; ctx.fillRect(-p.r*0.2,-2,p.r*0.4,4);
+    }
   }
   ctx.restore();
+}
+
+function drawDrones(R){
+  for(const dr of G.drones){
+    const x=CX+Math.cos(dr.a)*R, y=CY+Math.sin(dr.a)*R+Math.sin(dr.wob)*3;
+    ctx.save(); ctx.translate(x,y);
+    ctx.shadowColor='#ffd23f'; ctx.shadowBlur=8;
+    ctx.fillStyle='#ffd23f';
+    ctx.beginPath(); ctx.arc(0,0,dr.r*0.7,0,TAU); ctx.fill();
+    ctx.shadowBlur=0; ctx.fillStyle='#14141f';
+    ctx.fillRect(-dr.r*0.5,-1.5,dr.r,3);
+    const flap=Math.sin(dr.wob*4)*0.5+0.5;
+    ctx.fillStyle='rgba(224,251,255,0.6)';
+    ctx.beginPath(); ctx.ellipse(0,-dr.r*0.6,dr.r*0.5,dr.r*0.25*(0.3+flap),0,0,TAU); ctx.fill();
+    ctx.restore();
+  }
 }
 
 function drawHammer(R){
@@ -625,10 +1185,11 @@ function drawMenuScene(){
   ctx.fillStyle='#f2ede4'; ctx.strokeStyle='#07070f'; ctx.lineWidth=3;
   ctx.beginPath(); ctx.rect(-10,-10,21,21); ctx.fill(); ctx.stroke();
   ctx.restore();
-  // decorative planets
+  // decorative planets: обычная, бомба и кристалл — витрина механик
+  const deco=[{type:'normal',r:22},{type:'bomb',r:19},{type:'ice',r:24}];
   for(let i=0;i<3;i++){
     const a=-ha*0.4+i*TAU/3, pal=PLANETS[(i*2+1)%PLANETS.length];
-    const fake={a,spin:a*2,wob:i,core:false,r:22,pal,craters:[{ang:1,d:.4,s:.2},{ang:3,d:.5,s:.15}]};
+    const fake={a,spin:a*2,wob:i,type:deco[i].type,core:false,r:deco[i].r,pal,craters:[{ang:1,d:.4,s:.2},{ang:3,d:.5,s:.15}]};
     drawPlanet(fake,R);
   }
 }
@@ -650,7 +1211,9 @@ function render(){
     const R=orbitRadius();
     drawOrbit(R);
     drawHitZone(R);
+    drawBoss(R);
     for(const p of G.planets) drawPlanet(p,R);
+    drawDrones(R);
     drawHammer(R);
     drawParts();
     drawFloats();
@@ -659,7 +1222,8 @@ function render(){
       const k=Math.min(1,G.deathTimer*2);
       ctx.save(); ctx.globalAlpha=k*0.9; ctx.translate(CX,CY);
       const p=G.deathPlanet;
-      ctx.fillStyle=p.pal.fill; ctx.beginPath(); ctx.arc(0,0,p.r*2.2,0,TAU); ctx.fill();
+      ctx.fillStyle=p.type==='bomb'?'#14141f':p.pal.fill;
+      ctx.beginPath(); ctx.arc(0,0,p.r*2.2,0,TAU); ctx.fill();
       ctx.strokeStyle='#07070f'; ctx.lineWidth=3;
       for(let i=0;i<5;i++){ const a=i*1.3+p.wob;
         ctx.beginPath(); ctx.moveTo(0,0);
@@ -670,6 +1234,12 @@ function render(){
     }
   }
   ctx.restore();
+  if(G.event&&G.event.id==='darkness'&&G.mode==='play'){   // затмение: видим только зону удара
+    const R=orbitRadius(), hx=CX+Math.cos(G.angle)*R, hy=CY+Math.sin(G.angle)*R;
+    const g=ctx.createRadialGradient(hx,hy,30,hx,hy,170);
+    g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.88)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  }
   if(G.flash>0){ ctx.fillStyle=G.flashCol; ctx.globalAlpha=G.flash*0.5;
     ctx.fillRect(0,0,W,H); ctx.globalAlpha=1; }
 }

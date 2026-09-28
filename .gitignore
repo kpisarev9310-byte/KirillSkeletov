@@ -1,5 +1,2 @@
-(empty)node_modules/
-.next/
-dist/
-build/
+# Logs and temp files
 *.log

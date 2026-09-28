@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Автотест ORBIT CRUSH: запускает игру в headless Chromium,
-прогоняет автопилотом и проверяет ключевые механики."""
+"""Автотест ORBIT CRUSH v2: headless Chromium + автопилот.
+Проверяет: старт, выживание робота (с бомбами/призраками/кристаллами),
+жизни и проигрыш, смерть от бомбы при спаме, ревант, рекорд."""
 import sys, time
 from playwright.sync_api import sync_playwright
 
@@ -23,49 +24,63 @@ with sync_playwright() as pw:
     assert mode == "menu", f"ожидали menu, получили {mode}"
     page.keyboard.press("Space")
     page.wait_for_timeout(500)
-    mode = page.evaluate("G.mode")
-    assert mode == "play", f"после Space ожидали play, получили {mode}"
-    print("[ok] старт из меню (Space -> play)")
+    assert page.evaluate("G.lives") == 3, "на старте должно быть 3 жизни"
+    print("[ok] старт из меню, 3 жизни на HUD")
 
-    # 2. Удар молотом: планета появляется и разбивается
-    page.evaluate("startAuto()")          # автопилот
-    t0 = time.time()
-    crushed = 0
-    max_score = 0
+    # 2. Автопилот: робот бьёт всё кроме бомб -> обязан выживать
+    page.evaluate("startAuto()")
+    t0, max_score, crushed, seen_types = time.time(), 0, 0, set()
     while (time.time() - t0) * 1000 < RUN_MS:
-        st = page.evaluate("() => ({m:G.mode,s:G.score,c:G.crushed,sh:G.shield,p:G.planets.length})")
-        max_score = max(max_score, st["s"])
-        crushed = st["c"]
+        st = page.evaluate("""() => ({m:G.mode,s:G.score,c:G.crushed,l:G.lives,
+            types:[...new Set(G.planets.map(p=>p.type))], ghostVis:G.planets.some(p=>p.type==='ghost'&&p.visible)})""")
+        max_score = max(max_score, st["s"]); crushed = st["c"]
+        seen_types.update(st["types"])
         if st["m"] == "dead":
-            errors.append(f"автопилот умер на счёте {st['s']}")
+            errors.append(f"автопилот умер на счёте {st['s']} (жизней было {st['l']})")
             break
+        if st["l"] < 3:
+            errors.append(f"автопилот потерял жизнь на счёте {st['s']} — нечестный удар?")
         page.wait_for_timeout(1000)
+    print(f"[..] прогон {RUN_MS//1000}с: счёт до {max_score}, разбито {crushed}, типы в игре: {sorted(seen_types)}")
+    for need in ("bomb", "ice", "core"):
+        if need not in seen_types and max_score > 700:
+            errors.append(f"тип {need} так и не появился при счёте {max_score}")
 
-    print(f"[..] прогон {RUN_MS//1000}с: счёт до {max_score}, разбито планет: {crushed}")
-
-    # 3. Механика щита существует и включалась
-    had_shield = page.evaluate("G.shieldUsed===true || G.shield===true || window.__shieldSeen===true")
-
-    # 4. Смерть и рестарт (щит гасит первый удар — проверяем и это тоже)
+    # 3. Спам-игрок обязан ПРОИГРАТЬ: бьёт вслепую -> детонирует бомбы
     page.evaluate("() => { AUTO=false; if(autoTimer)clearInterval(autoTimer); }")
-    die_real = "() => { if(G.shield){ G.shield=false; } const p=G.planets.find(q=>q.alive)||null; if(!p){ spawnPlanet(); } die(G.planets.find(q=>q.alive)); }"
-    if page.evaluate("G.shield"):
-        page.evaluate("() => { const p=G.planets.find(q=>q.alive)||null; if(p) die(p); }")
-        page.wait_for_timeout(200)
-        print(f"[ok] щит поглотил удар: {page.evaluate('G.mode') == 'play'}")
-    page.evaluate(die_real)
-    page.wait_for_timeout(1000)
-    assert page.evaluate("G.mode") == "dead", "die() не перевёл в режим dead"
+    page.evaluate("startGame(); G.score=800;")   # чтобы бомбы точно спавнились
+    spam_dead = False
+    t0 = time.time()
+    while (time.time() - t0) < 40 and not spam_dead:
+        page.keyboard.press("Space")             # спам без ритма
+        page.wait_for_timeout(90)
+        st = page.evaluate("() => ({m:G.mode,l:G.lives})")
+        if st["m"] == "dead":
+            spam_dead = True
+    cause = page.evaluate("document.getElementById('cause').textContent")
+    assert spam_dead, "спам-игрок выжил 40 секунд — игра слишком лёгкая!"
+    print(f"[ok] проигрыш реален: спам умер, причина на экране: «{cause}»")
+
+    # 4. Ревант и сброс жизней
+    page.wait_for_timeout(900)
     page.keyboard.press("Space")
     page.wait_for_timeout(300)
-    assert page.evaluate("G.mode") == "play", "ревант по Space не работает"
-    print("[ok] смерть -> экран game over -> ревант по Space")
+    assert page.evaluate("G.mode") == "play" and page.evaluate("G.lives") == 3, "ревант не сбросил жизни"
+    print("[ok] ревант: снова play, 3 жизни")
 
-    # 5. Сохранение рекорда
+    # 5. Прямая проверка: потеря 3 жизней = game over
+    page.evaluate("() => { G.shield=false; loseLife(CX,CY,'ТЕСТ'); loseLife(CX,CY,'ТЕСТ'); loseLife(CX,CY,'ТЕСТ'); }")
+    page.wait_for_timeout(300)
+    assert page.evaluate("G.mode") == "dead", "три потери жизни не привели к смерти"
+    print("[ok] 3 потери жизни -> game over")
+
+    # 6. Рекорд
     best = page.evaluate("localStorage.getItem('orbitcrush_best')")
-    print(f"[ok] рекорд сохраняется в localStorage: best={best}")
+    print(f"[ok] рекорд в localStorage: best={best}")
 
-    # 6. Скриншоты для визуальной проверки
+    # 7. Скриншоты
+    page.evaluate("() => { startGame(); G.score=1500; updateHUD(); }")
+    page.wait_for_timeout(2500)
     page.screenshot(path="shot_game.png")
     page.evaluate("G.mode='menu';document.getElementById('menu').classList.remove('hidden')")
     page.wait_for_timeout(300)
@@ -80,4 +95,4 @@ if errors:
         print(" -", e)
     sys.exit(1)
 else:
-    print("ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ: ошибок JS нет, автопилот выживает, механики работают.")
+    print("ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ: ошибок JS нет, автопилот выживает, спам проигрывает, механики работают.")
